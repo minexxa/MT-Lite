@@ -1,6 +1,5 @@
 package com.mtlite.app.util
 
-import android.content.Context
 import android.os.Environment
 import android.os.StatFs
 import com.mtlite.app.data.FileItem
@@ -9,13 +8,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.lingala.zip4j.ZipFile
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 
 object FileHelper {
 
     fun isRootAvailable(): Boolean {
-        return Shell.isAppGrantedRoot() == true || Shell.getShell().isRoot
+        return try {
+            Shell.isAppGrantedRoot() == true || Shell.getShell().isRoot
+        } catch (_: Exception) {
+            false
+        }
     }
 
     suspend fun listFiles(path: String, showHidden: Boolean = true): List<FileItem> =
@@ -25,27 +26,48 @@ object FileHelper {
                     return@withContext listZipEntries(path)
                 }
 
+                // Prefer normal Java File API first
                 val dir = File(path)
-                if (!dir.exists() || !dir.isDirectory) {
-                    return@withContext emptyList()
+                val normalList = try {
+                    if (dir.exists() && dir.isDirectory && dir.canRead()) {
+                        dir.listFiles()
+                    } else null
+                } catch (_: Exception) {
+                    null
                 }
 
-                val files = dir.listFiles() ?: emptyArray()
+                val files: Array<File> = if (normalList != null) {
+                    normalList
+                } else {
+                    // Fallback: use root shell (ls -la)
+                    listViaShell(path)
+                }
+
                 val items = files
                     .filter { showHidden || !it.name.startsWith(".") }
-                    .map { FileItem.fromFile(it) }
+                    .map { f ->
+                        // When from shell, file may not fully exist for normal API
+                        try {
+                            FileItem.fromFile(f)
+                        } catch (_: Exception) {
+                            FileItem(
+                                name = f.name,
+                                path = f.absolutePath,
+                                isDirectory = f.path.endsWith("/") || !f.name.contains("."),
+                                lastModified = 0L
+                            )
+                        }
+                    }
                     .sortedWith(compareBy<FileItem> { !it.isDirectory }.thenBy { it.name.lowercase() })
 
-                // Add parent ".."
-                val parent = dir.parentFile
                 val result = mutableListOf<FileItem>()
-                if (parent != null && path != "/") {
+                if (path != "/" && path.isNotEmpty()) {
+                    val parent = File(path).parent ?: "/"
                     result.add(
                         FileItem(
                             name = "..",
-                            path = parent.absolutePath,
-                            isDirectory = true,
-                            lastModified = parent.lastModified()
+                            path = parent,
+                            isDirectory = true
                         )
                     )
                 }
@@ -57,8 +79,44 @@ object FileHelper {
             }
         }
 
+    /** List directory via `ls` through libsu (works for / with root). */
+    private fun listViaShell(path: String): Array<File> {
+        return try {
+            val result = Shell.cmd("ls -1A \"$path\" 2>/dev/null").exec()
+            if (!result.isSuccess) {
+                // Try without root still via sh
+                val r2 = Shell.cmd("ls -1A \"$path\" 2>/dev/null").exec()
+                if (!r2.isSuccess) return emptyArray()
+                parseLsOutput(path, r2.out)
+            } else {
+                parseLsOutput(path, result.out)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyArray()
+        }
+    }
+
+    private fun parseLsOutput(parent: String, lines: List<String>): Array<File> {
+        val base = if (parent.endsWith("/")) parent else "$parent/"
+        return lines
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != "." && it != ".." }
+            .map { name -> File(base + name) }
+            .toTypedArray()
+    }
+
+    /** Detect if entry is directory via shell test. */
+    fun isDirectoryShell(path: String): Boolean {
+        return try {
+            val r = Shell.cmd("[ -d \"$path\" ] && echo 1 || echo 0").exec()
+            r.out.firstOrNull()?.trim() == "1"
+        } catch (_: Exception) {
+            File(path).isDirectory
+        }
+    }
+
     private fun listZipEntries(zipPath: String): List<FileItem> {
-        // Format: zip:///path/to/file.zip!/internal/path
         val parts = zipPath.removePrefix("zip://").split("!", limit = 2)
         val realZip = parts[0]
         val internal = if (parts.size > 1) parts[1].trimStart('/') else ""
@@ -68,7 +126,6 @@ object FileHelper {
             val entries = zip.fileHeaders
             val result = mutableListOf<FileItem>()
 
-            // Parent
             if (internal.isNotEmpty()) {
                 val parentInternal = File(internal).parent ?: ""
                 result.add(
@@ -94,7 +151,6 @@ object FileHelper {
                 if (firstSeg.isEmpty()) continue
 
                 if (relative.contains("/")) {
-                    // Directory
                     if (seenDirs.add(firstSeg)) {
                         result.add(
                             FileItem(
@@ -108,7 +164,6 @@ object FileHelper {
                         )
                     }
                 } else {
-                    // File
                     result.add(
                         FileItem(
                             name = firstSeg,
@@ -131,7 +186,7 @@ object FileHelper {
 
     suspend fun copyFile(src: FileItem, destDir: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            if (src.isZipEntry) return@withContext false // TODO: extract from zip
+            if (src.isZipEntry) return@withContext false
             val source = File(src.path)
             val target = File(destDir, src.name)
             if (source.isDirectory) {
@@ -141,8 +196,13 @@ object FileHelper {
             }
             true
         } catch (e: Exception) {
-            e.printStackTrace()
-            false
+            // Try root cp
+            try {
+                val r = Shell.cmd("cp -a \"${src.path}\" \"$destDir/\"").exec()
+                r.isSuccess
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
@@ -151,10 +211,14 @@ object FileHelper {
             if (src.isZipEntry) return@withContext false
             val source = File(src.path)
             val target = File(destDir, src.name)
-            source.renameTo(target) || (copyFile(src, destDir) && deleteFile(src))
+            if (source.renameTo(target)) return@withContext true
+            copyFile(src, destDir) && deleteFile(src)
         } catch (e: Exception) {
-            e.printStackTrace()
-            false
+            try {
+                Shell.cmd("mv \"${src.path}\" \"$destDir/\"").exec().isSuccess
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
@@ -162,10 +226,15 @@ object FileHelper {
         try {
             if (item.isZipEntry) return@withContext false
             val file = File(item.path)
-            if (file.isDirectory) file.deleteRecursively() else file.delete()
+            val ok = if (file.isDirectory) file.deleteRecursively() else file.delete()
+            if (ok) return@withContext true
+            Shell.cmd("rm -rf \"${item.path}\"").exec().isSuccess
         } catch (e: Exception) {
-            e.printStackTrace()
-            false
+            try {
+                Shell.cmd("rm -rf \"${item.path}\"").exec().isSuccess
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
@@ -173,9 +242,14 @@ object FileHelper {
         withContext(Dispatchers.IO) {
             try {
                 val file = File(parent, name)
-                if (isDir) file.mkdirs() else file.createNewFile()
+                val ok = if (isDir) file.mkdirs() else file.createNewFile()
+                if (ok) return@withContext true
+                if (isDir) {
+                    Shell.cmd("mkdir -p \"$parent/$name\"").exec().isSuccess
+                } else {
+                    Shell.cmd("touch \"$parent/$name\"").exec().isSuccess
+                }
             } catch (e: Exception) {
-                e.printStackTrace()
                 false
             }
         }
@@ -184,9 +258,9 @@ object FileHelper {
         try {
             val file = File(item.path)
             val target = File(file.parent, newName)
-            file.renameTo(target)
+            if (file.renameTo(target)) return@withContext true
+            Shell.cmd("mv \"${item.path}\" \"${file.parent}/$newName\"").exec().isSuccess
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
@@ -202,22 +276,39 @@ object FileHelper {
         }
     }
 
-    fun getDefaultPaths(): List<Pair<String, String>> {
-        val list = mutableListOf<Pair<String, String>>()
-        list.add("内部存储" to Environment.getExternalStorageDirectory().absolutePath)
-        list.add("根目录" to "/")
-        // Common paths
+    fun getStorageEntries(): List<Triple<String, String, String>> {
+        // title, path, subtitle
+        val list = mutableListOf<Triple<String, String, String>>()
+        list.add(Triple("根目录", "/", if (isRootAvailable()) "Root 可用" else "需要 Root"))
         val emulated = "/storage/emulated/0"
-        if (File(emulated).exists()) list.add("内部存储" to emulated)
-        return list.distinctBy { it.second }
+        if (File(emulated).exists() || File(emulated).canRead()) {
+            val (used, total) = getStorageInfo(emulated)
+            list.add(
+                Triple(
+                    "内部存储",
+                    emulated,
+                    "${FileItem.formatSize(used)} / ${FileItem.formatSize(total)}"
+                )
+            )
+        }
+        list.add(Triple("系统", "/system", "/system"))
+        list.add(Triple("数据", "/data", "/data"))
+        list.add(Triple("SD卡/OTG", "/storage", "/storage"))
+        list.add(Triple("下载", "$emulated/Download", "Download"))
+        list.add(Triple("DCIM", "$emulated/DCIM", "DCIM"))
+        return list
     }
 
     suspend fun readTextFile(path: String, maxSize: Long = 2 * 1024 * 1024): String? =
         withContext(Dispatchers.IO) {
             try {
                 val file = File(path)
-                if (!file.exists() || file.length() > maxSize) return@withContext null
-                file.readText()
+                if (file.exists() && file.canRead() && file.length() <= maxSize) {
+                    return@withContext file.readText()
+                }
+                // Root fallback
+                val r = Shell.cmd("head -c $maxSize \"$path\" 2>/dev/null").exec()
+                if (r.isSuccess) r.out.joinToString("\n") else null
             } catch (e: Exception) {
                 null
             }
@@ -228,7 +319,29 @@ object FileHelper {
             File(path).writeText(content)
             true
         } catch (e: Exception) {
-            false
+            try {
+                // Write via shell
+                val escaped = content.replace("'", "'\\''")
+                Shell.cmd("printf '%s' '$escaped' > \"$path\"").exec().isSuccess
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    suspend fun runShell(cmd: String): String = withContext(Dispatchers.IO) {
+        try {
+            val r = Shell.cmd(cmd).exec()
+            buildString {
+                append(r.out.joinToString("\n"))
+                if (r.err.isNotEmpty()) {
+                    if (isNotEmpty()) append("\n")
+                    append(r.err.joinToString("\n"))
+                }
+                if (isEmpty()) append("(exit ${r.code})")
+            }
+        } catch (e: Exception) {
+            e.message ?: "error"
         }
     }
 }
