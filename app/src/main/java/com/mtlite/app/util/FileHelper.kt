@@ -1,6 +1,5 @@
 package com.mtlite.app.util
 
-import android.os.Environment
 import android.os.StatFs
 import com.mtlite.app.data.FileItem
 import com.topjohnwu.superuser.Shell
@@ -26,7 +25,6 @@ object FileHelper {
                     return@withContext listZipEntries(path)
                 }
 
-                // Prefer normal Java File API first
                 val dir = File(path)
                 val normalList = try {
                     if (dir.exists() && dir.isDirectory && dir.canRead()) {
@@ -36,83 +34,68 @@ object FileHelper {
                     null
                 }
 
-                val files: Array<File> = if (normalList != null) {
-                    normalList
-                } else {
-                    // Fallback: use root shell (ls -la)
-                    listViaShell(path)
+                if (normalList != null) {
+                    return@withContext buildResult(path, normalList.map { FileItem.fromFile(it) }, showHidden)
                 }
 
-                val items = files
-                    .filter { showHidden || !it.name.startsWith(".") }
-                    .map { f ->
-                        // When from shell, file may not fully exist for normal API
-                        try {
-                            FileItem.fromFile(f)
-                        } catch (_: Exception) {
-                            FileItem(
-                                name = f.name,
-                                path = f.absolutePath,
-                                isDirectory = f.path.endsWith("/") || !f.name.contains("."),
-                                lastModified = 0L
-                            )
-                        }
-                    }
-                    .sortedWith(compareBy<FileItem> { !it.isDirectory }.thenBy { it.name.lowercase() })
-
-                val result = mutableListOf<FileItem>()
-                if (path != "/" && path.isNotEmpty()) {
-                    val parent = File(path).parent ?: "/"
-                    result.add(
-                        FileItem(
-                            name = "..",
-                            path = parent,
-                            isDirectory = true
-                        )
-                    )
-                }
-                result.addAll(items)
-                result
+                // Shell fallback (root or restricted dirs)
+                val shellItems = listViaShell(path)
+                buildResult(path, shellItems, showHidden)
             } catch (e: Exception) {
                 e.printStackTrace()
                 emptyList()
             }
         }
 
-    /** List directory via `ls` through libsu (works for / with root). */
-    private fun listViaShell(path: String): Array<File> {
+    private fun buildResult(
+        path: String,
+        items: List<FileItem>,
+        showHidden: Boolean
+    ): List<FileItem> {
+        val filtered = items
+            .filter { showHidden || !it.name.startsWith(".") }
+            .sortedWith(compareBy<FileItem> { !it.isDirectory }.thenBy { it.name.lowercase() })
+
+        val result = mutableListOf<FileItem>()
+        if (path != "/" && path.isNotEmpty()) {
+            val parent = File(path).parent ?: "/"
+            result.add(FileItem(name = "..", path = parent, isDirectory = true))
+        }
+        result.addAll(filtered)
+        return result
+    }
+
+    /**
+     * List via shell. Uses `ls -1pA` so directories end with `/`.
+     */
+    private fun listViaShell(path: String): List<FileItem> {
         return try {
-            val result = Shell.cmd("ls -1A \"$path\" 2>/dev/null").exec()
-            if (!result.isSuccess) {
-                // Try without root still via sh
-                val r2 = Shell.cmd("ls -1A \"$path\" 2>/dev/null").exec()
-                if (!r2.isSuccess) return emptyArray()
-                parseLsOutput(path, r2.out)
-            } else {
-                parseLsOutput(path, result.out)
+            val safe = path.replace("\"", "\\\"")
+            val result = Shell.cmd("ls -1pA \"$safe\" 2>/dev/null").exec()
+            if (!result.isSuccess && result.out.isEmpty()) {
+                return emptyList()
             }
+            val base = if (path.endsWith("/")) path else "$path/"
+            result.out
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it != "./" && it != "../" && it != "." && it != ".." }
+                .map { raw ->
+                    val isDir = raw.endsWith("/")
+                    val name = raw.trimEnd('/')
+                    val full = base + name
+                    val f = File(full)
+                    FileItem(
+                        name = name,
+                        path = full,
+                        isDirectory = isDir || (try { f.isDirectory } catch (_: Exception) { false }),
+                        size = if (!isDir) try { f.length() } catch (_: Exception) { 0L } else 0L,
+                        lastModified = try { f.lastModified() } catch (_: Exception) { 0L },
+                        isHidden = name.startsWith(".")
+                    )
+                }
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyArray()
-        }
-    }
-
-    private fun parseLsOutput(parent: String, lines: List<String>): Array<File> {
-        val base = if (parent.endsWith("/")) parent else "$parent/"
-        return lines
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && it != "." && it != ".." }
-            .map { name -> File(base + name) }
-            .toTypedArray()
-    }
-
-    /** Detect if entry is directory via shell test. */
-    fun isDirectoryShell(path: String): Boolean {
-        return try {
-            val r = Shell.cmd("[ -d \"$path\" ] && echo 1 || echo 0").exec()
-            r.out.firstOrNull()?.trim() == "1"
-        } catch (_: Exception) {
-            File(path).isDirectory
+            emptyList()
         }
     }
 
@@ -196,10 +179,8 @@ object FileHelper {
             }
             true
         } catch (e: Exception) {
-            // Try root cp
             try {
-                val r = Shell.cmd("cp -a \"${src.path}\" \"$destDir/\"").exec()
-                r.isSuccess
+                Shell.cmd("cp -a \"${src.path}\" \"$destDir/\"").exec().isSuccess
             } catch (_: Exception) {
                 false
             }
@@ -277,20 +258,17 @@ object FileHelper {
     }
 
     fun getStorageEntries(): List<Triple<String, String, String>> {
-        // title, path, subtitle
         val list = mutableListOf<Triple<String, String, String>>()
         list.add(Triple("根目录", "/", if (isRootAvailable()) "Root 可用" else "需要 Root"))
         val emulated = "/storage/emulated/0"
-        if (File(emulated).exists() || File(emulated).canRead()) {
-            val (used, total) = getStorageInfo(emulated)
-            list.add(
-                Triple(
-                    "内部存储",
-                    emulated,
-                    "${FileItem.formatSize(used)} / ${FileItem.formatSize(total)}"
-                )
+        val (used, total) = getStorageInfo(emulated)
+        list.add(
+            Triple(
+                "内部存储",
+                emulated,
+                "${FileItem.formatSize(used)} / ${FileItem.formatSize(total)}"
             )
-        }
+        )
         list.add(Triple("系统", "/system", "/system"))
         list.add(Triple("数据", "/data", "/data"))
         list.add(Triple("SD卡/OTG", "/storage", "/storage"))
@@ -306,7 +284,6 @@ object FileHelper {
                 if (file.exists() && file.canRead() && file.length() <= maxSize) {
                     return@withContext file.readText()
                 }
-                // Root fallback
                 val r = Shell.cmd("head -c $maxSize \"$path\" 2>/dev/null").exec()
                 if (r.isSuccess) r.out.joinToString("\n") else null
             } catch (e: Exception) {
@@ -320,9 +297,11 @@ object FileHelper {
             true
         } catch (e: Exception) {
             try {
-                // Write via shell
-                val escaped = content.replace("'", "'\\''")
-                Shell.cmd("printf '%s' '$escaped' > \"$path\"").exec().isSuccess
+                val b64 = android.util.Base64.encodeToString(
+                    content.toByteArray(Charsets.UTF_8),
+                    android.util.Base64.NO_WRAP
+                )
+                Shell.cmd("echo '$b64' | base64 -d > \"$path\"").exec().isSuccess
             } catch (_: Exception) {
                 false
             }
