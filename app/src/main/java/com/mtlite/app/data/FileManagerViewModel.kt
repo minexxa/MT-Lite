@@ -35,7 +35,7 @@ class FileManagerViewModel : ViewModel() {
         refreshPane(PaneSide.RIGHT)
     }
 
-    fun setActivePane(side: PaneSide) {
+    fun switchActivePane(side: PaneSide) {
         activePane = side
     }
 
@@ -162,7 +162,6 @@ class FileManagerViewModel : ViewModel() {
             if (clipboard.isCut) clipboard = ClipboardData()
             toastMessage = "完成 $success/${clipboard.items.size}"
             refreshPane(side)
-            // Also refresh the other pane if same path or source
             refreshPane(if (side == PaneSide.LEFT) PaneSide.RIGHT else PaneSide.LEFT)
         }
     }
@@ -214,15 +213,13 @@ class FileManagerViewModel : ViewModel() {
             navigateTo(side, item.path)
             return
         }
-        if (item.isDirectory || item.isZipEntry && item.isDirectory) {
+        if (item.isDirectory || (item.isZipEntry && item.isDirectory)) {
             navigateTo(side, item.path)
         } else if (item.path.endsWith(".zip", true) || item.path.endsWith(".apk", true)) {
-            // Enter ZIP
             navigateTo(side, "zip://${item.path}")
         } else if (isTextFile(item.name)) {
             openTextEditor(item.path)
         }
-        // else: other files can be handled later
     }
 
     private fun isTextFile(name: String): Boolean {
