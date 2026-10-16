@@ -29,16 +29,87 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var currentTool by remember { mutableStateOf<ToolAction?>(null) }
+    var snackMsg by remember { mutableStateOf<String?>(null) }
 
     val left = viewModel.leftPane
     val right = viewModel.rightPane
     val active = viewModel.activePane
 
-    // Toast
     viewModel.toastMessage?.let { msg ->
         LaunchedEffect(msg) {
+            snackMsg = msg
             viewModel.clearToast()
         }
+    }
+
+    // Full-screen tool pages
+    when (currentTool) {
+        ToolAction.TERMINAL -> {
+            TerminalScreen(onClose = { currentTool = null })
+            return
+        }
+        ToolAction.APK_EXTRACT -> {
+            ApkExtractorScreen(onClose = { currentTool = null })
+            return
+        }
+        ToolAction.BOOKMARKS -> {
+            BookmarksScreen(
+                bookmarks = listOf(
+                    "内部存储" to "/storage/emulated/0",
+                    "下载" to "/storage/emulated/0/Download",
+                    "根目录" to "/"
+                ),
+                onOpen = { viewModel.navigateTo(active, it) },
+                onClose = { currentTool = null }
+            )
+            return
+        }
+        ToolAction.TEXT_EDITOR -> {
+            TextEditorScreen(
+                path = "/storage/emulated/0/MT-Lite-note.txt",
+                initialContent = "",
+                onSave = {
+                    viewModel.saveTextEditor(it)
+                    currentTool = null
+                },
+                onClose = { currentTool = null }
+            )
+            // Ensure path is set for save
+            LaunchedEffect(Unit) {
+                viewModel.textEditorPath = "/storage/emulated/0/MT-Lite-note.txt"
+            }
+            return
+        }
+        ToolAction.PLUGINS,
+        ToolAction.REMOTE,
+        ToolAction.COLOR_PICKER,
+        ToolAction.FTP,
+        ToolAction.ACTIVITY_LOG,
+        ToolAction.SETTINGS -> {
+            // Placeholder dialog-style page
+            AlertDialog(
+                onDismissRequest = { currentTool = null },
+                title = { Text("功能开发中") },
+                text = {
+                    Text(
+                        when (currentTool) {
+                            ToolAction.PLUGINS -> "插件管理：后续支持自定义脚本与翻译引擎。"
+                            ToolAction.REMOTE -> "远程管理：HTTP/FTP 服务即将加入。"
+                            ToolAction.COLOR_PICKER -> "屏幕取色：需要悬浮窗权限，后续实现。"
+                            ToolAction.FTP -> "FTP 客户端：连接远程服务器浏览文件。"
+                            ToolAction.ACTIVITY_LOG -> "Activity 记录：查看最近打开的路径与操作。"
+                            ToolAction.SETTINGS -> "设置：主题、显示隐藏文件、默认路径等。"
+                            else -> "敬请期待"
+                        }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { currentTool = null }) { Text("确定") }
+                }
+            )
+        }
+        null -> {}
     }
 
     ModalNavigationDrawer(
@@ -48,6 +119,9 @@ fun MainScreen(
                 SideDrawerContent(
                     onNavigate = { path ->
                         viewModel.navigateTo(active, path)
+                    },
+                    onTool = { action ->
+                        currentTool = action
                     },
                     onClose = { scope.launch { drawerState.close() } }
                 )
@@ -73,7 +147,8 @@ fun MainScreen(
                             val files = state.items.count { !it.isDirectory }
                             val (used, total) = FileHelper.getStorageInfo("/storage/emulated/0")
                             Text(
-                                text = "文件夹: $folders  文件: $files  储存: ${com.mtlite.app.data.FileItem.formatSize(used)}/${com.mtlite.app.data.FileItem.formatSize(total)}",
+                                text = "文件夹: $folders  文件: $files  储存: ${com.mtlite.app.data.FileItem.formatSize(used)}/${com.mtlite.app.data.FileItem.formatSize(total)}" +
+                                        if (FileHelper.isRootAvailable()) "  [Root]" else "",
                                 fontSize = 11.sp,
                                 color = Color.White.copy(alpha = 0.7f)
                             )
@@ -155,6 +230,19 @@ fun MainScreen(
                     onSync = { viewModel.syncPanes(active) },
                     onUp = { viewModel.goUp(active) }
                 )
+            },
+            snackbarHost = {
+                snackMsg?.let { msg ->
+                    Snackbar(
+                        action = {
+                            TextButton(onClick = { snackMsg = null }) { Text("关闭") }
+                        }
+                    ) { Text(msg) }
+                    LaunchedEffect(msg) {
+                        kotlinx.coroutines.delay(2500)
+                        snackMsg = null
+                    }
+                }
             }
         ) { padding ->
             Row(
@@ -162,7 +250,6 @@ fun MainScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                // Left pane
                 FileListPane(
                     state = left,
                     isActive = active == PaneSide.LEFT,
@@ -180,7 +267,6 @@ fun MainScreen(
                         .clickable { viewModel.switchActivePane(PaneSide.LEFT) }
                 )
 
-                // Divider
                 Box(
                     Modifier
                         .width(1.dp)
@@ -188,7 +274,6 @@ fun MainScreen(
                         .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 )
 
-                // Right pane
                 FileListPane(
                     state = right,
                     isActive = active == PaneSide.RIGHT,
@@ -209,7 +294,6 @@ fun MainScreen(
         }
     }
 
-    // Dialogs
     if (viewModel.showJumpDialog) {
         JumpPathDialog(
             currentPath = if (active == PaneSide.LEFT) left.currentPath else right.currentPath,
@@ -240,8 +324,7 @@ fun MainScreen(
         )
     }
 
-    // Simple Text Editor
-    if (viewModel.showTextEditor) {
+    if (viewModel.showTextEditor && currentTool == null) {
         TextEditorScreen(
             path = viewModel.textEditorPath,
             initialContent = viewModel.textEditorContent,
