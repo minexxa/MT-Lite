@@ -8,7 +8,6 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,7 +37,6 @@ fun MainScreen(
     // Toast
     viewModel.toastMessage?.let { msg ->
         LaunchedEffect(msg) {
-            // Simple handling - in real app use Snackbar
             viewModel.clearToast()
         }
     }
@@ -169,17 +167,17 @@ fun MainScreen(
                     state = left,
                     isActive = active == PaneSide.LEFT,
                     onItemClick = {
-                        viewModel.setActivePane(PaneSide.LEFT)
+                        viewModel.switchActivePane(PaneSide.LEFT)
                         viewModel.onItemClick(PaneSide.LEFT, it)
                     },
                     onItemLongClick = {
-                        viewModel.setActivePane(PaneSide.LEFT)
+                        viewModel.switchActivePane(PaneSide.LEFT)
                         viewModel.toggleSelect(PaneSide.LEFT, it.path)
                     },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clickable { viewModel.setActivePane(PaneSide.LEFT) }
+                        .clickable { viewModel.switchActivePane(PaneSide.LEFT) }
                 )
 
                 // Divider
@@ -195,17 +193,17 @@ fun MainScreen(
                     state = right,
                     isActive = active == PaneSide.RIGHT,
                     onItemClick = {
-                        viewModel.setActivePane(PaneSide.RIGHT)
+                        viewModel.switchActivePane(PaneSide.RIGHT)
                         viewModel.onItemClick(PaneSide.RIGHT, it)
                     },
                     onItemLongClick = {
-                        viewModel.setActivePane(PaneSide.RIGHT)
+                        viewModel.switchActivePane(PaneSide.RIGHT)
                         viewModel.toggleSelect(PaneSide.RIGHT, it.path)
                     },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clickable { viewModel.setActivePane(PaneSide.RIGHT) }
+                        .clickable { viewModel.switchActivePane(PaneSide.RIGHT) }
                 )
             }
         }
