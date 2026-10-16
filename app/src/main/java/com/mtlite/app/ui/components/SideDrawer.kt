@@ -28,9 +28,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtlite.app.util.FileHelper
 
+enum class ToolAction {
+    BOOKMARKS, PLUGINS, REMOTE, COLOR_PICKER, APK_EXTRACT,
+    TEXT_EDITOR, TERMINAL, FTP, ACTIVITY_LOG, SETTINGS
+}
+
 @Composable
 fun SideDrawerContent(
     onNavigate: (String) -> Unit,
+    onTool: (ToolAction) -> Unit,
     onClose: () -> Unit
 ) {
     Column(
@@ -52,43 +58,72 @@ fun SideDrawerContent(
             Spacer(Modifier.width(12.dp))
             Column {
                 Text("MT-Lite", color = Color.White, fontSize = 18.sp)
-                Text("未登录", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                Text(
+                    if (FileHelper.isRootAvailable()) "Root 已授权" else "未 Root",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp
+                )
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onClose) {
+            IconButton(onClick = {
+                onTool(ToolAction.SETTINGS)
+                onClose()
+            }) {
                 Icon(Icons.Default.Settings, contentDescription = "设置", tint = Color.White)
             }
         }
 
         // Storage section
         SectionTitle("存储")
-        val (used, total) = FileHelper.getStorageInfo("/storage/emulated/0")
-        StorageItem(
-            icon = Icons.Default.Storage,
-            title = "根目录",
-            subtitle = "系统根",
-            progress = 1f,
-            onClick = { onNavigate("/"); onClose() }
-        )
-        StorageItem(
-            icon = Icons.Default.SdCard,
-            title = "内部存储",
-            subtitle = "${com.mtlite.app.data.FileItem.formatSize(used)} / ${com.mtlite.app.data.FileItem.formatSize(total)}",
-            progress = if (total > 0) used.toFloat() / total else 0f,
-            onClick = { onNavigate("/storage/emulated/0"); onClose() }
-        )
+        FileHelper.getStorageEntries().forEach { (title, path, subtitle) ->
+            StorageItem(
+                icon = when {
+                    path == "/" -> Icons.Default.Storage
+                    path.contains("emulated") -> Icons.Default.SdCard
+                    else -> Icons.Default.Storage
+                },
+                title = title,
+                subtitle = subtitle,
+                progress = if (path.contains("emulated")) {
+                    val (u, t) = FileHelper.getStorageInfo(path)
+                    if (t > 0) u.toFloat() / t else 0f
+                } else 0f,
+                onClick = {
+                    onNavigate(path)
+                    onClose()
+                }
+            )
+        }
 
         // Tools
         SectionTitle("工具")
-        ToolItem(Icons.Default.Bookmark, "书签", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.Extension, "插件管理", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.Cloud, "远程管理", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.ColorLens, "屏幕取色", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.Info, "安装包提取", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.Edit, "文本编辑器", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.Terminal, "终端模拟器", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.Cloud, "FTP客户端", onClick = { /* TODO */ })
-        ToolItem(Icons.Default.History, "Activity记录", onClick = { /* TODO */ })
+        ToolItem(Icons.Default.Bookmark, "书签") {
+            onTool(ToolAction.BOOKMARKS); onClose()
+        }
+        ToolItem(Icons.Default.Extension, "插件管理") {
+            onTool(ToolAction.PLUGINS); onClose()
+        }
+        ToolItem(Icons.Default.Cloud, "远程管理") {
+            onTool(ToolAction.REMOTE); onClose()
+        }
+        ToolItem(Icons.Default.ColorLens, "屏幕取色") {
+            onTool(ToolAction.COLOR_PICKER); onClose()
+        }
+        ToolItem(Icons.Default.Info, "安装包提取") {
+            onTool(ToolAction.APK_EXTRACT); onClose()
+        }
+        ToolItem(Icons.Default.Edit, "文本编辑器") {
+            onTool(ToolAction.TEXT_EDITOR); onClose()
+        }
+        ToolItem(Icons.Default.Terminal, "终端模拟器") {
+            onTool(ToolAction.TERMINAL); onClose()
+        }
+        ToolItem(Icons.Default.Cloud, "FTP客户端") {
+            onTool(ToolAction.FTP); onClose()
+        }
+        ToolItem(Icons.Default.History, "Activity记录") {
+            onTool(ToolAction.ACTIVITY_LOG); onClose()
+        }
     }
 }
 
@@ -121,17 +156,23 @@ private fun StorageItem(
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 15.sp)
-                Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Text(
+                    subtitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
             }
         }
-        Spacer(Modifier.height(4.dp))
-        LinearProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 40.dp)
-                .height(4.dp),
-        )
+        if (progress > 0f) {
+            Spacer(Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 40.dp)
+                    .height(4.dp),
+            )
+        }
     }
 }
 
