@@ -8,7 +8,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ListAlt
@@ -282,144 +287,81 @@ fun MainScreen(
                                 Icon(Icons.Default.Close, contentDescription = "取消选择")
                             }
                         }
+                        Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "更多")
                         }
-                        // ---------- 图二: overflow menu ----------
                         DropdownMenu(
                             expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
+                            onDismissRequest = { menuExpanded = false },
+                            modifier = Modifier.width(196.dp),
+                            offset = androidx.compose.ui.unit.DpOffset(0.dp, (-48).dp),
+                            shadowElevation = 12.dp
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("刷新") },
-                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                                onClick = {
-                                    viewModel.refreshPane(active)
+                            MTMenuItem("刷新", Icons.Default.Refresh, {
+                                viewModel.refreshPane(active); menuExpanded = false
+                            })
+                            MTMenuItem("搜索", Icons.Default.Search, {
+                                viewModel.showSearchDialog = true; menuExpanded = false
+                            })
+                            if (activeState.searchQuery != null) {
+                                MTMenuItem("搜索结果", Icons.Default.ListAlt, {
+                                    viewModel.toastMessage = "当前显示搜索 \"${activeState.searchQuery}\" 的结果"
                                     menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("搜索") },
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                onClick = {
-                                    viewModel.showSearchDialog = true
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (activeState.searchQuery != null) "搜索结果: ${activeState.searchQuery}"
-                                        else "搜索结果"
-                                    )
-                                },
-                                leadingIcon = { Icon(Icons.Default.ListAlt, contentDescription = null) },
-                                onClick = {
-                                    if (activeState.searchQuery == null) {
-                                        viewModel.showSearchDialog = true
-                                    } else {
-                                        viewModel.toastMessage = "当前显示搜索 \"${activeState.searchQuery}\" 的结果"
-                                    }
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("全选") },
-                                leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
-                                onClick = {
-                                    viewModel.selectAll(active)
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("过滤") },
-                                leadingIcon = { Icon(Icons.Default.FilterAlt, contentDescription = null) },
-                                onClick = {
-                                    viewModel.showFilterDialog = true
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("排序方式") },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null) },
-                                onClick = {
-                                    viewModel.showSortDialog = true
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("打开终端") },
-                                leadingIcon = { Icon(Icons.Default.Terminal, contentDescription = null) },
-                                onClick = {
-                                    currentTool = ToolAction.TERMINAL
-                                    menuExpanded = false
-                                }
-                            )
+                                })
+                            }
+                            MTMenuItem("全选", Icons.Default.SelectAll, {
+                                viewModel.selectAll(active); menuExpanded = false
+                            })
+                            MTMenuItem("过滤", Icons.Outlined.FilterAlt, {
+                                viewModel.showFilterDialog = true; menuExpanded = false
+                            })
+                            MTMenuItem("排序方式", Icons.AutoMirrored.Filled.Sort, {
+                                viewModel.showSortDialog = true; menuExpanded = false
+                            })
+                            MTMenuItem("打开终端", Icons.Outlined.Terminal, {
+                                currentTool = ToolAction.TERMINAL; menuExpanded = false
+                            })
                             // 隐藏文件▶ with nested submenu
-                            DropdownMenuItem(
-                                text = { Text("隐藏文件") },
-                                leadingIcon = { Icon(Icons.Default.VisibilityOff, contentDescription = null) },
-                                trailingIcon = {
-                                    Box {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                        DropdownMenu(
-                                            expanded = hiddenMenuExpanded,
-                                            onDismissRequest = { hiddenMenuExpanded = false }
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text(if (activeState.showHidden) "不显示隐藏文件" else "显示隐藏文件") },
-                                                onClick = {
-                                                    viewModel.toggleShowHidden()
-                                                    hiddenMenuExpanded = false
-                                                    menuExpanded = false
-                                                }
-                                            )
+                            Box {
+                                MTMenuItem(
+                                    "隐藏文件", Icons.Default.Visibility,
+                                    { hiddenMenuExpanded = true },
+                                    trailing = { Icon(Icons.Default.PlayArrow, contentDescription = null) }
+                                )
+                                DropdownMenu(
+                                    expanded = hiddenMenuExpanded,
+                                    onDismissRequest = { hiddenMenuExpanded = false },
+                                    shadowElevation = 12.dp
+                                ) {
+                                    MTMenuItem(
+                                        if (activeState.showHidden) "不显示隐藏文件" else "显示隐藏文件",
+                                        Icons.Default.VisibilityOff,
+                                        {
+                                            viewModel.toggleShowHidden()
+                                            hiddenMenuExpanded = false
+                                            menuExpanded = false
                                         }
-                                    }
-                                },
-                                onClick = { hiddenMenuExpanded = true }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("添加书签") },
-                                leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
-                                onClick = {
-                                    viewModel.showBookmarkAddDialog = true
-                                    menuExpanded = false
+                                    )
                                 }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("设为首页") },
-                                leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
-                                onClick = {
-                                    viewModel.setAsHome()
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("交换窗口") },
-                                leadingIcon = { Icon(Icons.Default.SwapHoriz, contentDescription = null) },
-                                onClick = {
-                                    viewModel.swapPanes()
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("设置") },
-                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                onClick = {
-                                    currentTool = ToolAction.SETTINGS
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("退出") },
-                                leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    (context as? Activity)?.finish()
-                                }
-                            )
+                            }
+                            MTMenuItem("添加书签", Icons.Default.CollectionsBookmark, {
+                                viewModel.showBookmarkAddDialog = true; menuExpanded = false
+                            })
+                            MTMenuItem("设为首页", Icons.Default.Home, {
+                                viewModel.setAsHome(); menuExpanded = false
+                            })
+                            MTMenuItem("交换窗口", Icons.AutoMirrored.Filled.Login, {
+                                viewModel.swapPanes(); menuExpanded = false
+                            })
+                            MTMenuItem("设置", Icons.Default.Settings, {
+                                currentTool = ToolAction.SETTINGS; menuExpanded = false
+                            })
+                            MTMenuItem("退出", Icons.AutoMirrored.Filled.ExitToApp, {
+                                menuExpanded = false
+                                (context as? Activity)?.finish()
+                            })
+                        }
                         }
                     }
                 )

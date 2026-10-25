@@ -1,20 +1,23 @@
 package com.mtlite.app.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.MoveDown
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Publish
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Unarchive
@@ -25,19 +28,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mtlite.app.data.FileItem
 import com.mtlite.app.data.FileKind
+import com.mtlite.app.ui.theme.MTStyle
+
+private class MenuCell(
+    val icon: ImageVector,
+    val text: String,
+    val enabled: Boolean = true,
+    val onClick: () -> Unit
+)
 
 /**
- * MT-manager style long-press option popup (图五 single / 图一 batch).
- * Anchored to the pressed list item by the caller.
- *
- * [targets] is what the actions operate on: the pressed item alone, or the
- * whole selection when the pane is in multi-select mode. In a zip preview
- * the first entry becomes 解压到另一窗口 (replacing 复制).
+ * Official MT style long-press popup: centred two-column grid on a flat
+ * #FAFAFA panel. [targets] is what the actions operate on (the pressed item,
+ * or the whole selection in batch mode).
  */
 @Composable
 fun LongPressMenu(
@@ -65,187 +79,112 @@ fun LongPressMenu(
     onAddToZip: () -> Unit,
     onTestZip: () -> Unit
 ) {
+    if (!expanded) return
     val inZip = item.isZipEntry
     var toolsExpanded by remember { mutableStateOf(false) }
 
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss
-    ) {
-        if (batchMode) {
-            Text(
-                text = "带 ● 的菜单表示可以长按触发单窗口操作",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-            )
-        }
+    val hasArchive = targets.any { it.fileKind == FileKind.ARCHIVE && !it.isZipEntry }
+    val noZipEntries = targets.none { it.isZipEntry }
+    val singleFile = !batchMode && !item.isDirectory
 
-        if (inZip) {
-            // ---- zip preview variant ----
-            MenuRow(
-                icon = Icons.Default.Unarchive,
-                text = "解压到另一窗口",
-                onClick = { onExtractToOtherPane(); onDismiss() }
-            )
-            MenuRow(
-                icon = Icons.Default.OpenInNew,
-                text = "打开方式...",
-                onClick = { onOpenWith(); onDismiss() }
-            )
-            MenuRow(
-                icon = Icons.Default.Info,
-                text = "属性",
-                onClick = { onProperties(); onDismiss() }
-            )
-            return@DropdownMenu
-        }
+    fun act(block: () -> Unit): () -> Unit = { block(); onDismiss() }
 
-        // 添加 / 移动 to the other pane (two columns, MT style)
-        Row(Modifier.fillMaxWidth()) {
-            DropdownMenuItem(
-                text = { Text("<- 添加") },
-                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
-                onClick = { onCopy(); onDismiss() },
-                modifier = Modifier.weight(1f)
-            )
-            DropdownMenuItem(
-                text = { Text("<- 移动") },
-                leadingIcon = { Icon(Icons.Default.MoveDown, contentDescription = null) },
-                onClick = { onMove(); onDismiss() },
-                modifier = Modifier.weight(1f)
-            )
-        }
-        HorizontalDivider()
-        MenuRow(
-            icon = Icons.Default.Delete,
-            text = "删除",
-            tint = MaterialTheme.colorScheme.error,
-            onClick = { onDelete(); onDismiss() }
-        )
-        MenuRow(
-            icon = Icons.Default.DriveFileRenameOutline,
-            text = if (batchMode) "批量重命名" else "重命名",
-            onClick = { onRename(); onDismiss() }
-        )
-
-        // ---- 工具 submenu ----
-        val hasArchive = targets.any { it.fileKind == FileKind.ARCHIVE && !it.isZipEntry }
-        val noZipEntries = targets.none { it.isZipEntry }
-        val singleFile = !batchMode && !item.isDirectory
-        DropdownMenuItem(
-            text = { Text("工具") },
-            leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
-            trailingIcon = {
-                Box {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    DropdownMenu(
-                        expanded = toolsExpanded,
-                        onDismissRequest = { toolsExpanded = false }
-                    ) {
-                        MenuRow(
-                            icon = Icons.Default.DriveFileRenameOutline,
-                            text = "批量重命名",
-                            enabled = batchMode && noZipEntries,
-                            onClick = { onBatchRename(); onDismiss() }
-                        )
-                        MenuRow(
-                            icon = Icons.Default.Security,
-                            text = "修改权限",
-                            enabled = noZipEntries,
-                            onClick = { onChmod(); onDismiss() }
-                        )
-                        MenuRow(
-                            icon = Icons.Default.Fingerprint,
-                            text = "计算哈希 (SHA-256)",
-                            enabled = singleFile,
-                            onClick = { onHash(); onDismiss() }
-                        )
-                        MenuRow(
-                            icon = Icons.Default.Memory,
-                            text = "Hex 查看",
-                            enabled = singleFile,
-                            onClick = { onHex(); onDismiss() }
-                        )
-                        MenuRow(
-                            icon = Icons.Default.FolderZip,
-                            text = "添加到压缩包",
-                            enabled = hasArchive && targets.size > 1,
-                            onClick = { onAddToZip(); onDismiss() }
-                        )
-                        MenuRow(
-                            icon = Icons.Default.Unarchive,
-                            text = "测试压缩包",
-                            enabled = hasArchive,
-                            onClick = { onTestZip(); onDismiss() }
-                        )
-                    }
-                }
-            },
-            onClick = { toolsExpanded = true }
-        )
-
-        MenuRow(
-            icon = Icons.Default.FolderZip,
-            text = "压缩",
-            enabled = noZipEntries,
-            onClick = { onCompress(); onDismiss() }
-        )
-        MenuRow(
-            icon = Icons.Default.Info,
-            text = "属性",
-            onClick = { onProperties(); onDismiss() }
-        )
-        MenuRow(
-            icon = Icons.Default.Share,
-            text = "分享",
-            onClick = { onShare(); onDismiss() }
-        )
+    val cells = mutableListOf<MenuCell>()
+    if (inZip) {
+        cells += MenuCell(Icons.Default.Unarchive, "解压到另一窗口") { act(onExtractToOtherPane)() }
+        cells += MenuCell(Icons.Default.Check, "打开方式...") { act(onOpenWith)() }
+        cells += MenuCell(Icons.Default.Error, "属性") { act(onProperties)() }
+    } else {
+        cells += MenuCell(Icons.Default.Add, "<- 添加") { act(onCopy)() }
+        cells += MenuCell(Icons.Default.ContentCut, "<- 移动") { act(onMove)() }
+        cells += MenuCell(Icons.Default.Delete, "删除") { act(onDelete)() }
+        cells += MenuCell(Icons.Default.Edit, if (batchMode) "批量重命名" else "重命名") { act(onRename)() }
+        cells += MenuCell(Icons.Default.Build, "工具") { toolsExpanded = true }
+        cells += MenuCell(Icons.Default.Download, "压缩", noZipEntries) { act(onCompress)() }
+        cells += MenuCell(Icons.Default.Error, "属性") { act(onProperties)() }
+        cells += MenuCell(Icons.Default.Share, "分享") { act(onShare)() }
+        cells += MenuCell(Icons.Default.Check, "打开方式...", !batchMode) { act(onOpenWith)() }
+        cells += MenuCell(Icons.Default.CollectionsBookmark, "添加书签", !batchMode) { act(onAddBookmark)() }
         if (item.fileKind == FileKind.ARCHIVE && !batchMode) {
-            MenuRow(
-                icon = Icons.Default.Unarchive,
-                text = "解压到...",
-                onClick = { onExtractTo(); onDismiss() }
-            )
+            cells += MenuCell(Icons.Default.Unarchive, "解压到...") { act(onExtractTo)() }
         }
         if (item.fileKind == FileKind.APK && !batchMode) {
             // Read-only signature display — no verification, no modification.
-            MenuRow(
-                icon = Icons.Default.VerifiedUser,
-                text = "签名信息",
-                onClick = { onSignatureInfo(); onDismiss() }
-            )
+            cells += MenuCell(Icons.Default.VerifiedUser, "签名信息") { act(onSignatureInfo)() }
         }
-        HorizontalDivider()
-        MenuRow(
-            icon = Icons.Default.OpenInNew,
-            text = "打开方式...",
-            enabled = !batchMode,
-            onClick = { onOpenWith(); onDismiss() }
-        )
-        MenuRow(
-            icon = Icons.Default.Bookmark,
-            text = "添加书签",
-            enabled = !batchMode,
-            onClick = { onAddBookmark(); onDismiss() }
-        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp),
+            shape = RoundedCornerShape(2.dp),
+            color = MTStyle.barBg(),
+            shadowElevation = 12.dp
+        ) {
+            Column {
+                if (batchMode) {
+                    Text(
+                        text = "带 ● 的菜单表示可以长按触发单窗口操作",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+                cells.chunked(2).forEach { row ->
+                    Row(Modifier.fillMaxWidth()) {
+                        row.forEach { cell ->
+                            Box(Modifier.weight(1f)) {
+                                MenuGridCell(cell)
+                                if (cell.text == "工具" && !inZip) {
+                                    DropdownMenu(
+                                        expanded = toolsExpanded,
+                                        onDismissRequest = { toolsExpanded = false },
+                                        shadowElevation = 8.dp
+                                    ) {
+                                        MTMenuItem("批量重命名", Icons.Default.Edit, { onBatchRename(); onDismiss() }, batchMode && noZipEntries)
+                                        MTMenuItem("修改权限", Icons.Default.Security, { onChmod(); onDismiss() }, noZipEntries)
+                                        MTMenuItem("计算哈希 (SHA-256)", Icons.Default.Fingerprint, { onHash(); onDismiss() }, singleFile)
+                                        MTMenuItem("Hex 查看", Icons.Default.Memory, { onHex(); onDismiss() }, singleFile)
+                                        MTMenuItem("添加到压缩包", Icons.Default.FolderZip, { onAddToZip(); onDismiss() }, hasArchive && targets.size > 1)
+                                        MTMenuItem("测试压缩包", Icons.Default.Unarchive, { onTestZip(); onDismiss() }, hasArchive)
+                                    }
+                                }
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun MenuRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    onClick: () -> Unit,
-    tint: androidx.compose.ui.graphics.Color = LocalContentColor.current,
-    enabled: Boolean = true
-) {
-    DropdownMenuItem(
-        text = { Text(text) },
-        leadingIcon = { Icon(icon, contentDescription = null, tint = tint) },
-        onClick = onClick,
-        enabled = enabled
-    )
+private fun MenuGridCell(cell: MenuCell) {
+    val fg = if (MTStyle.isDark()) Color(0xFFEEEEEE) else Color(0xFF121212)
+    val c = if (cell.enabled) fg else fg.copy(alpha = 0.38f)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clickable(enabled = cell.enabled, onClick = cell.onClick)
+            .padding(start = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(cell.icon, contentDescription = null, tint = c, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            cell.text,
+            color = c,
+            fontSize = 16.sp,
+            letterSpacing = 0.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 /**
