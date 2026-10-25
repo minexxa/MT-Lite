@@ -100,9 +100,9 @@ fun MainScreen(
             TextEditorScreen(
                 path = "/storage/emulated/0/MT-Lite-note.txt",
                 initialContent = "",
-                onSave = {
+                onSave = { content, _ ->
                     viewModel.textEditorPath = "/storage/emulated/0/MT-Lite-note.txt"
-                    viewModel.saveTextEditor(it)
+                    viewModel.saveTextEditor(content)
                     currentTool = null
                 },
                 onClose = { currentTool = null }
@@ -739,14 +739,16 @@ fun MainScreen(
         )
     }
 
-    if (viewModel.showTextEditor && viewModel.imageViewerPath == null && viewModel.hexViewerPath == null) {
-        TextEditorScreen(
-            path = viewModel.textEditorPath,
-            initialContent = viewModel.textEditorContent,
-            readOnly = viewModel.textEditorReadOnly,
-            wrap = settings.textWrap,
-            onSave = { viewModel.saveTextEditor(it) },
-            onClose = { viewModel.showTextEditor = false }
-        )
-    }
+        if (viewModel.showTextEditor && viewModel.imageViewerPath == null && viewModel.hexViewerPath == null) {
+            TextEditorScreen(
+                path = viewModel.textEditorPath,
+                initialContent = viewModel.textEditorContent,
+                readOnly = viewModel.textEditorReadOnly,
+                wrap = false,
+                charset = viewModel.textEditorCharset,
+                fileBytes = viewModel.textEditorBytes,
+                onSave = { content, cs -> viewModel.saveTextEditor(content, cs) },
+                onClose = { viewModel.showTextEditor = false }
+            )
+        }
 }

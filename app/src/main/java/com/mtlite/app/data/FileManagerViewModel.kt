@@ -180,6 +180,8 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
     var textEditorPath by mutableStateOf("")
     var textEditorContent by mutableStateOf("")
     var textEditorReadOnly by mutableStateOf(false)
+    var textEditorCharset by mutableStateOf<java.nio.charset.Charset>(java.nio.charset.StandardCharsets.UTF_8)
+    var textEditorBytes by mutableStateOf<ByteArray?>(null)
 
     init {
         refreshPane(PaneSide.LEFT)
@@ -711,7 +713,12 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openTextEditor(path: String, readOnly: Boolean = false) {
         viewModelScope.launch {
-            val content = FileHelper.readTextFile(path) ?: ""
+            val bytes = FileHelper.readFileBytes(path)
+            val cs = bytes?.let { FileHelper.detectCharset(it) } ?: java.nio.charset.StandardCharsets.UTF_8
+            val content = bytes?.let { runCatching { String(it, cs) }.getOrNull() }
+                ?: FileHelper.readTextFile(path) ?: ""
+            textEditorBytes = bytes
+            textEditorCharset = cs
             textEditorPath = path
             textEditorContent = content
             textEditorReadOnly = readOnly
@@ -719,9 +726,9 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun saveTextEditor(content: String) {
+    fun saveTextEditor(content: String, charset: java.nio.charset.Charset = java.nio.charset.StandardCharsets.UTF_8) {
         viewModelScope.launch {
-            val ok = FileHelper.writeTextFile(textEditorPath, content)
+            val ok = FileHelper.writeTextFile(textEditorPath, content, charset)
             toastMessage = if (ok) "保存成功" else "保存失败"
             showTextEditor = false
             refreshPane(activePane)

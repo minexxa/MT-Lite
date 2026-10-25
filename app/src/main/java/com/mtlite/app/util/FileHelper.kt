@@ -883,14 +883,14 @@ object FileHelper {
             }
         }
 
-    suspend fun writeTextFile(path: String, content: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun writeTextFile(path: String, content: String, charset: java.nio.charset.Charset = java.nio.charset.StandardCharsets.UTF_8): Boolean = withContext(Dispatchers.IO) {
         try {
-            File(path).writeText(content)
+            File(path).writeBytes(content.toByteArray(charset))
             true
         } catch (e: Exception) {
             try {
                 val b64 = android.util.Base64.encodeToString(
-                    content.toByteArray(Charsets.UTF_8),
+                    content.toByteArray(charset),
                     android.util.Base64.NO_WRAP
                 )
                 Shell.cmd("echo '$b64' | base64 -d > \"$path\"").exec().isSuccess
@@ -898,6 +898,46 @@ object FileHelper {
                 false
             }
         }
+    }
+
+    /**
+     * Read raw bytes of a file. Falls back to a base64 round-trip through the
+     * shell for root-only paths the app itself cannot open.
+     */
+    suspend fun readFileBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            val f = File(path)
+            if (f.exists() && f.canRead()) return@withContext f.readBytes()
+            val r = Shell.cmd("base64 \"$path\" 2>/dev/null").exec()
+            if (r.isSuccess && r.out.isNotEmpty()) {
+                android.util.Base64.decode(r.out.joinToString(""), android.util.Base64.DEFAULT)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Detect a file's charset: BOM first, then a strict UTF-8 probe, then
+     * GB18030 (covers GBK), finally ISO-8859-1 as a lossless last resort.
+     */
+    fun detectCharset(bytes: ByteArray): java.nio.charset.Charset {
+        if (bytes.size >= 3 &&
+            bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+        ) return java.nio.charset.StandardCharsets.UTF_8
+        if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
+            return java.nio.charset.Charset.forName("UTF-16LE")
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+            return java.nio.charset.Charset.forName("UTF-16BE")
+        }
+        val decoded = runCatching { String(bytes, java.nio.charset.StandardCharsets.UTF_8) }.getOrNull()
+        if (decoded != null && !decoded.contains('\uFFFD')) {
+            return java.nio.charset.StandardCharsets.UTF_8
+        }
+        return runCatching {
+            java.nio.charset.Charset.forName("GB18030")
+        }.getOrDefault(java.nio.charset.StandardCharsets.ISO_8859_1)
     }
 
     /** Read raw bytes for the hex viewer. Returns at most [length] bytes. */
