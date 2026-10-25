@@ -1,7 +1,10 @@
-name: Build ARM64 APK
+name: Build ARM64 Release APK
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -22,7 +25,6 @@ jobs:
         with:
           packages: platform-tools
 
-
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
@@ -33,25 +35,58 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
-
       - name: Create local.properties
-        run: |
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Build Debug APK (arm64-v8a only)
+      - name: Check signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          missing=0
+          for v in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then echo "::error::Secret $v is not set"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Prepare Gradle wrapper
         run: |
           if [ ! -f gradlew ]; then
             gradle wrapper --gradle-version 8.9
           fi
-          ./gradlew assembleDebug --stacktrace
-      
-      - run: mv app/build/outputs/apk/debug/*.apk mt-lite.apk
-      
+          chmod +x gradlew
+
+      - name: Build Release APK (arm64-v8a split)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Collect APK
+        run: |
+          ls -l app/build/outputs/apk/release/
+          APK=$(ls app/build/outputs/apk/release/*arm64-v8a*-release.apk | head -n 1)
+          cp "$APK" mt-lite-arm64-v8a-release.apk
+          "$ANDROID_SDK_ROOT"/build-tools/*/apksigner verify --verbose mt-lite-arm64-v8a-release.apk || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt-lite-arm64-v8a-release
+          path: mt-lite-arm64-v8a-release.apk
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: test
-          files: mt-lite.apk
+          files: mt-lite-arm64-v8a-release.apk

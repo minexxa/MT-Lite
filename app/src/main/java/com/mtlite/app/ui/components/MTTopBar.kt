@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -92,6 +93,87 @@ fun MTTopBar(
             }
         }
         // shadow drawn below the bar, overlapping the content
+        Box(Modifier.align(Alignment.BottomStart).offset(y = MTStyle.ShadowSize)) {
+            ShadowBelow()
+        }
+    }
+}
+
+/**
+ * Official MT Manager style toolbar for sub pages (settings etc.):
+ * #303030, white back arrow, 20sp white title, soft shadow below.
+ */
+@Composable
+fun MTSubTopBar(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier.fillMaxWidth()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(MTStyle.ToolbarBg)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .height(MTStyle.ToolbarHeight)
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.size(56.dp).align(Alignment.CenterStart)
+            ) {
+                Icon(
+                    androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    tint = Color.White
+                )
+            }
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 20.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 64.dp, end = 16.dp)
+            )
+        }
+        Box(Modifier.align(Alignment.BottomStart).offset(y = MTStyle.ShadowSize)) {
+            ShadowBelow()
+        }
+    }
+}
+
+/**
+ * Drop-in replacement for Material3 TopAppBar (same slots) in the official MT
+ * style: #303030, white content, 56dp high under the status bar, soft shadow.
+ */
+@Composable
+fun MTAppBar(
+    title: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    navigationIcon: @Composable () -> Unit = {},
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    Box(modifier.fillMaxWidth()) {
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MTStyle.ToolbarBg)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .height(MTStyle.ToolbarHeight),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) { navigationIcon() }
+                Box(Modifier.weight(1f)) {
+                    androidx.compose.material3.ProvideTextStyle(
+                        androidx.compose.ui.text.TextStyle(fontSize = 20.sp, color = Color.White)
+                    ) { title() }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+            }
+        }
         Box(Modifier.align(Alignment.BottomStart).offset(y = MTStyle.ShadowSize)) {
             ShadowBelow()
         }

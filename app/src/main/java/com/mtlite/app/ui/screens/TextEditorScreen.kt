@@ -294,8 +294,13 @@ fun TextEditorScreen(
     Scaffold(
         containerColor = palette.background,
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-                Column {
+            Surface(
+                color = com.mtlite.app.ui.theme.MTStyle.ToolbarBg,
+                contentColor = androidx.compose.ui.graphics.Color.White,
+                tonalElevation = 0.dp,
+                shadowElevation = 4.dp
+            ) {
+                Column(Modifier.windowInsetsPadding(WindowInsets.statusBars)) {
                     // Row 1: MT-style icon toolbar
                     Row(
                         Modifier.fillMaxWidth().height(44.dp),
@@ -404,13 +409,13 @@ fun TextEditorScreen(
                         Text(
                             "$cursorLine:$cursorCol",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = androidx.compose.ui.graphics.Color(0xFFCCCCCC),
                             modifier = Modifier.clickable { showGoto = true }.padding(horizontal = 6.dp)
                         )
                         Text(
                             charsetName(currentCharset),
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = androidx.compose.ui.graphics.Color(0xFF64B5F6),
                             modifier = Modifier.clickable { showCharset = true }.padding(horizontal = 4.dp)
                         )
                     }
@@ -788,7 +793,12 @@ private fun FindReplaceBar(
     onReplaceAll: () -> Unit,
     onClose: () -> Unit
 ) {
-    Column(Modifier.padding(horizontal = 8.dp).padding(bottom = 6.dp)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+    Column(Modifier.padding(horizontal = 8.dp).padding(vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = findText,
@@ -827,6 +837,7 @@ private fun FindReplaceBar(
                 Text("全部", fontSize = 12.sp)
             }
         }
+    }
     }
 }
 

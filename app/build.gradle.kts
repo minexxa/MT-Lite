@@ -19,10 +19,34 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+    }
 
-        // Only arm64-v8a as requested
-        ndk {
-            abiFilters += listOf("arm64-v8a")
+    // ---- Signing: read from environment variables (set by GitHub Actions secrets).
+    // If KEYSTORE_PATH is not set the release APK is built unsigned.
+    val ksPath: String? = System.getenv("KEYSTORE_PATH")
+    val hasKeystore = !ksPath.isNullOrEmpty() && file(ksPath).exists()
+
+    signingConfigs {
+        if (hasKeystore) {
+            create("release") {
+                storeFile = file(ksPath!!)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
+    // ---- Split by ABI: one APK per architecture, only arm64-v8a is produced.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a")
+            isUniversalApk = false
         }
     }
 
@@ -33,6 +57,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

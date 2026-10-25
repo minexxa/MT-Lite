@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
+import com.mtlite.app.ui.components.MTAppBar
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +45,7 @@ fun TerminalScreen(onClose: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MTAppBar(
                 title = { Text("终端模拟器") },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
@@ -174,7 +175,7 @@ fun ApkExtractorScreen(onClose: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MTAppBar(
                 title = { Text("安装包提取") },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
@@ -293,7 +294,7 @@ fun BookmarksScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
+            MTAppBar(
                 title = { Text("书签管理") },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
@@ -361,7 +362,7 @@ fun TrashScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MTAppBar(
                 title = { Text("回收站") },
                 navigationIcon = {
                     IconButton(onClick = onClose) {

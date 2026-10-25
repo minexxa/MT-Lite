@@ -239,7 +239,11 @@ fun MainScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(
+                drawerShape = androidx.compose.ui.graphics.RectangleShape,
+                drawerContainerColor = com.mtlite.app.ui.theme.MTStyle.listBg(),
+                windowInsets = WindowInsets(0, 0, 0, 0)
+            ) {
                 SideDrawerContent(
                     bookmarks = viewModel.bookmarkList,
                     onNavigate = { viewModel.navigateTo(active, it) },

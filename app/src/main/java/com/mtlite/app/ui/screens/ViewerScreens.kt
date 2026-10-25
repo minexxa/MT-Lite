@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material3.*
+import com.mtlite.app.ui.components.MTAppBar
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +71,7 @@ fun ApkInfoScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MTAppBar(
                 title = { Text("APK 信息") },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
@@ -255,7 +256,7 @@ fun ImageViewerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MTAppBar(
                 title = { Text(if (path.isBlank()) "图片查看器" else File(path).name, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
@@ -309,7 +310,7 @@ fun HexViewerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MTAppBar(
                 title = {
                     Column {
                         Text(if (path.isBlank()) "十六进制查看器" else File(path).name, maxLines = 1)
@@ -327,10 +328,10 @@ fun HexViewerScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { offset = (offset - pageSize).coerceAtLeast(0L) }) {
+                    TextButton(onClick = { offset = (offset - pageSize).coerceAtLeast(0L) }, colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color.White)) {
                         Text("上一页", fontSize = 12.sp)
                     }
-                    TextButton(onClick = { offset += pageSize }) {
+                    TextButton(onClick = { offset += pageSize }, colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color.White)) {
                         Text("下一页", fontSize = 12.sp)
                     }
                 }

@@ -1,21 +1,26 @@
 package com.mtlite.app.ui.screens
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtlite.app.data.SettingsStore
 import com.mtlite.app.data.SortBy
+import com.mtlite.app.ui.components.MTSubTopBar
+import com.mtlite.app.ui.theme.MTStyle
 import com.mtlite.app.util.FileHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,16 +48,8 @@ fun SettingsScreen(onClose: () -> Unit) {
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("设置") },
-                navigationIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
-        }
+        containerColor = MTStyle.listBg(),
+        topBar = { MTSubTopBar(title = "设置", onBack = onClose) }
     ) { padding ->
         Column(
             Modifier
@@ -63,7 +60,8 @@ fun SettingsScreen(onClose: () -> Unit) {
             SettingsSection("外观") {
                 Text(
                     "主题模式",
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
+                    color = MTStyle.nameColor(),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
                 Row(
@@ -77,6 +75,10 @@ fun SettingsScreen(onClose: () -> Unit) {
                                 themeMode = mode
                                 settings.themeMode = mode
                             },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MTBlue.copy(alpha = 0.22f),
+                                selectedLabelColor = MTStyle.nameColor()
+                            ),
                             label = {
                                 Text(
                                     when (mode) {
@@ -84,7 +86,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                                         SettingsStore.ThemeMode.LIGHT -> "浅色"
                                         SettingsStore.ThemeMode.DARK -> "深色"
                                     },
-                                    fontSize = 12.sp
+                                    fontSize = 13.sp
                                 )
                             }
                         )
@@ -101,7 +103,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 )
             }
 
-            HorizontalDivider()
+            SettingsDivider()
 
             SettingsSection("文件列表") {
                 SwitchRow(
@@ -150,7 +152,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 )
             }
 
-            HorizontalDivider()
+            SettingsDivider()
 
             SettingsSection("删除") {
                 SwitchRow(
@@ -173,7 +175,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 )
             }
 
-            HorizontalDivider()
+            SettingsDivider()
 
             SettingsSection("文本编辑器") {
                 SwitchRow(
@@ -187,7 +189,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                 )
             }
 
-            HorizontalDivider()
+            SettingsDivider()
 
             SettingsSection("权限与状态") {
                 InfoRow("Root 状态", if (FileHelper.isRootAvailable()) "已授权" else "未授权")
@@ -199,16 +201,53 @@ fun SettingsScreen(onClose: () -> Unit) {
     }
 }
 
+private val MTBlue = Color(0xFF42A5F5)
+
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(
+        thickness = 1.dp,
+        color = MTStyle.dateColor().copy(alpha = 0.25f),
+        modifier = Modifier.padding(top = 8.dp)
+    )
+}
+
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Text(
             title,
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            fontSize = 15.sp,
+            color = MTBlue,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)
         )
         content()
+    }
+}
+
+/** Old-school MT switch: thin light track, bigger coloured thumb with shadow. */
+@Composable
+private fun MTSwitch(checked: Boolean) {
+    val dark = MTStyle.isDark()
+    val offset by animateDpAsState(if (checked) 14.dp else 0.dp, label = "thumb")
+    val track = if (checked) Color(0xFF90CAF9) else if (dark) Color(0xFF5A5A5A) else Color(0xFFBDBDBD)
+    val thumb = if (checked) MTBlue else if (dark) Color(0xFFB0B0B0) else Color(0xFFF5F5F5)
+    Box(Modifier.width(34.dp).height(24.dp), contentAlignment = Alignment.CenterStart) {
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .height(14.dp)
+                .clip(CircleShape)
+                .background(track)
+        )
+        Box(
+            Modifier
+                .offset(x = offset)
+                .size(20.dp)
+                .shadow(3.dp, CircleShape)
+                .background(thumb, CircleShape)
+        )
     }
 }
 
@@ -223,39 +262,27 @@ private fun SwitchRow(
         Modifier
             .fillMaxWidth()
             .clickable { onChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp)
-            Text(
-                subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Column(Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(title, fontSize = 16.sp, color = MTStyle.nameColor())
+            Text(subtitle, fontSize = 13.sp, color = MTStyle.dateColor())
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        MTSwitch(checked)
     }
 }
 
 @Composable
 private fun ClickRow(title: String, subtitle: String, onClick: () -> Unit) {
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp)
-            Text(
-                subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Icon(Icons.Default.DarkMode, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(title, fontSize = 16.sp, color = MTStyle.nameColor())
+        Text(subtitle, fontSize = 13.sp, color = MTStyle.dateColor())
     }
 }
 
@@ -264,13 +291,9 @@ private fun InfoRow(label: String, value: String) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
-        Text(label, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(
-            value,
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text(label, fontSize = 16.sp, color = MTStyle.nameColor(), modifier = Modifier.weight(1f))
+        Text(value, fontSize = 14.sp, color = MTStyle.dateColor())
     }
 }
