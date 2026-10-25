@@ -127,9 +127,21 @@ data class PaneState(
     val sortAscending: Boolean = true,
     val showHidden: Boolean = true,
     /** Non-null when the pane shows search results. */
-    val searchQuery: String? = null
+    val searchQuery: String? = null,
+    /** Name filter applied on top of [items]; null = no filter. */
+    val filterQuery: String? = null,
+    /** Path to highlight (e.g. jumped-to search result). */
+    val highlightPath: String? = null
 ) {
     val inSelectionMode: Boolean get() = selectedItems.isNotEmpty()
+
+    /** Items after applying [filterQuery] (case-insensitive substring on name). */
+    val visibleItems: List<FileItem>
+        get() {
+            val q = filterQuery?.trim()?.lowercase() ?: return items
+            if (q.isEmpty()) return items
+            return items.filter { it.name.lowercase().contains(q) }
+        }
 }
 
 data class ClipboardData(

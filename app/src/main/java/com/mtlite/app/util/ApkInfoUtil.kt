@@ -36,7 +36,18 @@ data class ApkInfo(
     val lastUpdateTime: Long,
     val dataDir: String?,
     val sourceDir: String?,
-    val abis: List<String>
+    val abis: List<String>,
+    // ---- extended fields (MT-manager style APK info) ----
+    /** Linux UID of the installed app; -1 when not installed. */
+    val uid: Int = -1,
+    val isInstalled: Boolean = false,
+    val installedVersionName: String? = null,
+    val installedVersionCode: Long? = null,
+    /** Signature scheme summary, e.g. "V1+V2+V3"; empty when unknown. */
+    val signatureScheme: String = "",
+    val isDebuggable: Boolean = false,
+    /** True when the on-disk APK matches the installed one. */
+    val sameAsInstalled: Boolean = false
 ) {
     fun sdkName(code: Int): String = when (code) {
         21 -> "5.0 (Lollipop)"
@@ -56,6 +67,10 @@ data class ApkInfo(
         35 -> "15 (V)"
         else -> "SDK $code"
     }
+
+    /** "1.2.3 (456)" */
+    val versionDisplay: String
+        get() = if (versionName.isNotEmpty()) "$versionName ($versionCode)" else "$versionCode"
 }
 
 object ApkInfoUtil {
@@ -79,6 +94,7 @@ object ApkInfoUtil {
             val label = appInfo?.let { pm.getApplicationLabel(it).toString() } ?: info.packageName
             val perms = info.requestedPermissions?.toList() ?: emptyList()
             val sigs = getSignatures(info)
+            val installed = queryInstalled(pm, info.packageName)
             ApkInfo(
                 path = path,
                 label = label,
@@ -101,7 +117,19 @@ object ApkInfoUtil {
                 lastUpdateTime = info.lastUpdateTime,
                 dataDir = appInfo?.dataDir,
                 sourceDir = path,
-                abis = emptyList()
+                abis = emptyList(),
+                uid = installed?.applicationInfo?.uid ?: -1,
+                isInstalled = installed != null,
+                installedVersionName = installed?.versionName,
+                installedVersionCode = if (installed != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) installed.longVersionCode
+                    else installed.versionCode.toLong()
+                } else null,
+                signatureScheme = schemeOf(info),
+                isDebuggable = appInfo?.let { (it.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 } ?: false,
+                sameAsInstalled = installed != null &&
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) installed.longVersionCode else installed.versionCode.toLong()) ==
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong())
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -150,7 +178,14 @@ object ApkInfoUtil {
                 lastUpdateTime = info.lastUpdateTime,
                 dataDir = appInfo?.dataDir,
                 sourceDir = appInfo?.sourceDir,
-                abis = appInfo?.let { it.nativeLibraryDir?.let { d -> listOf(d.substringAfterLast('/')) } } ?: emptyList()
+                abis = appInfo?.let { it.nativeLibraryDir?.let { d -> listOf(d.substringAfterLast('/')) } } ?: emptyList(),
+                uid = appInfo?.uid ?: -1,
+                isInstalled = true,
+                installedVersionName = info.versionName,
+                installedVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong(),
+                signatureScheme = schemeOf(info),
+                isDebuggable = appInfo?.let { (it.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 } ?: false,
+                sameAsInstalled = true
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -185,6 +220,37 @@ object ApkInfoUtil {
             hash(first.toByteArray(), "SHA-1"),
             hash(first.toByteArray(), "MD5")
         )
+    }
+
+    /** PackageInfo of the installed app with [packageName], or null when absent. */
+    private fun queryInstalled(pm: PackageManager, packageName: String): PackageInfo? {
+        return try {
+            pm.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Signature scheme summary read from SigningInfo (read-only, no
+     * verification). V2/V3 come from hidden accessors; when neither is
+     * present the APK is V1(JAR)-signed.
+     */
+    private fun schemeOf(info: PackageInfo): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return ""
+        val si = info.signingInfo ?: return ""
+        val parts = mutableListOf<String>()
+        if (si.hasMultipleSigners()) parts.add("多签名者")
+        val v2 = runCatching {
+            si.javaClass.getMethod("hasV2SigningCertificate").invoke(si) as? Boolean
+        }.getOrNull() ?: false
+        val v3 = runCatching {
+            si.javaClass.getMethod("hasV3SigningCertificate").invoke(si) as? Boolean
+        }.getOrNull() ?: false
+        if (v2) parts.add("V2")
+        if (v3) parts.add("V3")
+        if (parts.isEmpty() || parts == listOf("多签名者")) parts.add("V1")
+        return parts.joinToString("+")
     }
 
     private fun hash(bytes: ByteArray, algo: String): String =

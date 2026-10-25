@@ -3,9 +3,11 @@ package com.mtlite.app.ui.components
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.AudioFile
@@ -22,10 +24,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,8 +45,20 @@ fun FileListPane(
     isActive: Boolean,
     onItemClick: (FileItem) -> Unit,
     onItemLongClick: (FileItem) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSwipeSelect: (FileItem) -> Unit = {},
+    longPressItem: FileItem? = null,
+    menuContent: @Composable (FileItem) -> Unit = {}
 ) {
+    val visible = state.visibleItems
+    val listState = rememberLazyListState()
+
+    // Scroll a jumped-to search result into view.
+    LaunchedEffect(state.highlightPath) {
+        val idx = visible.indexOfFirst { it.path == state.highlightPath }
+        if (idx >= 0) runCatching { listState.animateScrollToItem(idx) }
+    }
+
     Column(modifier = modifier.fillMaxHeight()) {
         // Active indicator
         if (isActive) {
@@ -62,7 +79,26 @@ fun FileListPane(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "搜索: $q (${state.items.size} 项)",
+                        "搜索: $q (${visible.size} 项)",
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        state.filterQuery?.let { q ->
+            Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "过滤: $q (${visible.size}/${state.items.size})",
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
@@ -76,25 +112,33 @@ fun FileListPane(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 androidx.compose.material3.CircularProgressIndicator()
             }
-        } else if (state.items.isEmpty()) {
+        } else if (visible.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    if (state.searchQuery != null) "无匹配结果" else "空文件夹",
+                    if (state.searchQuery != null) "无匹配结果"
+                    else if (state.filterQuery != null) "无匹配文件"
+                    else "空文件夹",
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     fontSize = 13.sp
                 )
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                items(state.items, key = { it.path }) { item ->
+                items(visible, key = { it.path }) { item ->
                     FileListItem(
                         item = item,
                         isSelected = item.path in state.selectedItems,
+                        isHighlighted = item.path == state.highlightPath,
                         onClick = { onItemClick(item) },
-                        onLongClick = { onItemLongClick(item) }
+                        onLongClick = { onItemLongClick(item) },
+                        onSwipeSelect = { onSwipeSelect(item) },
+                        menu = if (item == longPressItem) {
+                            { menuContent(item) }
+                        } else null
                     )
                 }
             }
@@ -108,67 +152,90 @@ fun FileListItem(
     item: FileItem,
     isSelected: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isHighlighted: Boolean = false,
+    onSwipeSelect: () -> Unit = {},
+    menu: (@Composable () -> Unit)? = null
 ) {
     val bg = when {
         isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+        isHighlighted -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.28f)
         else -> Color.Transparent
     }
+    val thresholdPx = with(LocalDensity.current) { 88.dp.toPx() }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(bg)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
+    Box {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .background(bg)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
+                .pointerInput(item.path) {
+                    var total = 0f
+                    detectHorizontalDragGestures(
+                        onDragEnd = { total = 0f },
+                        onDragCancel = { total = 0f },
+                        onHorizontalDrag = { _, drag ->
+                            total += drag
+                            if (total > thresholdPx) {
+                                onSwipeSelect()
+                                total = 0f
+                            }
+                        }
+                    )
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (item.isDirectory) Icons.Default.Folder else iconFor(item),
+                contentDescription = null,
+                tint = tintFor(item),
+                modifier = Modifier.size(28.dp)
             )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (item.isDirectory) Icons.Default.Folder else iconFor(item),
-            contentDescription = null,
-            tint = tintFor(item),
-            modifier = Modifier.size(28.dp)
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = item.name,
-                fontSize = 15.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (item.name != "..") {
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = buildString {
-                        append(item.displayDate)
-                        if (item.displaySize.isNotEmpty()) {
-                            append("  ")
-                            append(item.displaySize)
-                        }
-                        if (item.permission.isNotEmpty()) {
-                            append("  ")
-                            append(item.permission)
-                        }
-                    },
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    text = item.name,
+                    fontSize = 15.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (item.name != "..") {
+                    Text(
+                        text = buildString {
+                            append(item.displayDate)
+                            if (item.displaySize.isNotEmpty()) {
+                                append("  ")
+                                append(item.displaySize)
+                            }
+                            if (item.permission.isNotEmpty()) {
+                                append("  ")
+                                append(item.permission)
+                            }
+                        },
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (isSelected) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "已选中",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
-        if (isSelected) {
-            Icon(
-                Icons.Default.CheckCircle,
-                contentDescription = "已选中",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+        menu?.invoke()
     }
 }
 

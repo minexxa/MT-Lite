@@ -34,6 +34,26 @@ typealias ConflictResolver = suspend (String) -> ConflictResolution
 
 object FileHelper {
 
+    private lateinit var appContext: android.content.Context
+
+    /** Call once from Application.onCreate so zip helpers can reach Context. */
+    fun init(context: android.content.Context) {
+        appContext = context.applicationContext
+    }
+
+    /**
+     * Open a zip, preferring [password] and falling back to the remembered
+     * password for this path.
+     */
+    private fun openZip(path: String, password: String? = null): ZipFile {
+        val pw = password ?: runCatching {
+            if (::appContext.isInitialized) {
+                com.mtlite.app.data.ZipPasswordStore.get(appContext).get(path)
+            } else null
+        }.getOrNull()
+        return if (pw.isNullOrEmpty()) ZipFile(path) else ZipFile(path, pw.toCharArray())
+    }
+
     @Volatile
     var cancelRequested: Boolean = false
 
@@ -79,20 +99,31 @@ object FileHelper {
 
             val dir = File(path)
             val normalList = try {
-                if (dir.exists() && dir.isDirectory && dir.canRead()) dir.listFiles() else null
+                if (dir.exists() && dir.isDirectory) dir.listFiles() else null
             } catch (_: Exception) {
                 null
             }
 
-            val raw = if (normalList != null) {
+            // File API can return null OR an empty array when SELinux blocks
+            // the listing (e.g. /data without root). Fall back to the shell
+            // in both cases — with root granted, libsu runs as root and can
+            // list every directory.
+            val raw = if (!normalList.isNullOrEmpty()) {
                 normalList.map { FileItem.fromFile(it) }
             } else {
                 listViaShell(path)
             }
-            FileItem.sortItems(
+            val sorted = FileItem.sortItems(
                 raw.filter { showHidden || !it.isHidden }.filter { it.name != "" },
                 sortBy, ascending, foldersFirst
             )
+            // Prepend the ".." entry so the list header can go up one level.
+            val parent = dir.parent
+            if (parent != null && parent != path) {
+                listOf(FileItem(name = "..", path = parent, isDirectory = true)) + sorted
+            } else {
+                sorted
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -101,39 +132,170 @@ object FileHelper {
 
     /**
      * List via shell. Uses `ls -lap` so directories end with `/` and the
-     * permission string is available.
+     * permission string is available. Falls back to `ls -la` and finally
+     * `ls -1` (names only) for restricted directories. With root granted,
+     * libsu executes as root and can list every directory.
+     *
+     * The parser is format-agnostic: it never assumes how many columns the
+     * date occupies (toybox uses "2026-10-23 10:02", GNU/busybox use
+     * "Oct 25 10:25"), because root shells frequently ship a different ls
+     * than the platform toybox one.
      */
     private fun listViaShell(path: String): List<FileItem> {
         return try {
             val safe = path.replace("\"", "\\\"")
-            val result = Shell.cmd("ls -lap \"$safe\" 2>/dev/null").exec()
-            if (!result.isSuccess && result.out.isEmpty()) return emptyList()
             val base = if (path.endsWith("/")) path else "$path/"
-            result.out
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .filterNot { it.startsWith("total ") }
+
+            var lines = runShellOut("ls -lap \"$safe\" 2>/dev/null")
+            if (lines.isEmpty()) lines = runShellOut("ls -la \"$safe\" 2>/dev/null")
+            if (lines.isEmpty()) lines = runShellOut("ls -1 \"$safe\" 2>/dev/null")
+            if (lines.isEmpty()) return emptyList()
+
+            val parsed = lines.mapNotNull { parseLsLine(it, base) }
+            if (parsed.isNotEmpty()) return parsed
+
+            // Long-format parsing produced nothing (unknown ls dialect):
+            // degrade to a names-only listing.
+            runShellOut("ls -1A \"$safe\" 2>/dev/null")
                 .mapNotNull { raw ->
-                    // Format: perms links owner group size date time name
-                    val parts = raw.split(Regex("\\s+"), limit = 9)
-                    if (parts.size < 9) return@mapNotNull null
-                    val perms = parts[0]
-                    val isDir = perms.startsWith("d") || perms.startsWith("l") && parts[8].endsWith("/")
-                    val name = parts[8].trimEnd('/')
-                    if (name == "." || name == "..") return@mapNotNull null
-                    val full = base + name
+                    val name = raw.trim().substringBefore(" -> ").trim().trimEnd('/')
+                    if (name.isEmpty() || name == "." || name == "..") return@mapNotNull null
+                    val f = File(base + name)
                     FileItem(
                         name = name,
-                        path = full,
-                        isDirectory = isDir,
-                        size = parts[4].toLongOrNull() ?: 0L,
-                        isHidden = name.startsWith("."),
-                        permission = perms,
-                        isSymlink = perms.startsWith("l")
+                        path = f.absolutePath,
+                        isDirectory = f.isDirectory,
+                        size = if (f.isFile) f.length() else 0L,
+                        isHidden = name.startsWith(".")
                     )
                 }
         } catch (e: Exception) {
             e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /**
+     * Parse one `ls -la` line into a FileItem. Layout:
+     * `perms links owner group size <date...> name [-> target]`.
+     *
+     * The name is located by skipping date-like columns (ISO date, HH:MM,
+     * month abbreviation, bare day number) after the size column — this is
+     * independent of how many date columns the local ls printed. Lines whose
+     * name column is missing (some root ls builds drop symlink names) are
+     * skipped, matching MT管理器 which shows only real entries.
+     */
+    private fun parseLsLine(line0: String, base: String): FileItem? {
+        val line = line0.trimEnd()
+        if (line.isEmpty() || line.startsWith("total ")) return null
+        if (line.length < 11) return null
+        val perms = line.substring(0, 10)
+        if (perms[0] !in "dlbcps-") return null
+        val sep = line[10]
+        // ' ' normally; '+' when GNU ls appends an ACL marker.
+        if (sep != ' ' && sep != '+') return null
+
+        val fields = line.substring(11).trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        // links owner group size + at least one date column + name
+        if (fields.size < 6) return null
+
+        val size = fields[3].toLongOrNull() ?: 0L
+
+        // Walk past the date columns; the first non-date token starts the name.
+        var nameIdx = -1
+        for (i in 4 until fields.size) {
+            if (fields[i] == "->") break
+            if (!isDateToken(fields[i])) {
+                nameIdx = i
+                break
+            }
+        }
+
+        val arrowIdx = fields.indexOfFirst { it == "->" }
+        val nameEnd = if (arrowIdx > nameIdx) arrowIdx else fields.size
+
+        val name = if (nameIdx >= 0) {
+            // Names may contain spaces: join everything up to the arrow (or EOL).
+            // `ls -p` appends '/' to directories — strip it from the name only.
+            fields.subList(nameIdx, nameEnd).joinToString(" ").trimEnd('/')
+        } else {
+            // Malformed row: some ls builds print symlinks as "-> target" with
+            // the name column missing. Derive the name from the link target so
+            // entries like /sdcard -> /storage/emulated/0 stay reachable.
+            if (arrowIdx in 0 until fields.size - 1) {
+                fields[arrowIdx + 1].trimEnd('/').substringAfterLast('/')
+            } else ""
+        }
+        if (name.isEmpty() || name == "." || name == "..") return null
+
+        val target = if (arrowIdx in 0 until fields.size - 1) {
+            fields.subList(arrowIdx + 1, fields.size).joinToString(" ")
+        } else null
+        val isDir = perms.startsWith("d") || (target != null && target.endsWith("/"))
+
+        return FileItem(
+            name = name,
+            path = base + name,
+            isDirectory = isDir,
+            size = size,
+            lastModified = parseLsDate(fields),
+            isHidden = name.startsWith("."),
+            permission = perms,
+            isSymlink = perms.startsWith("l")
+        )
+    }
+
+    /**
+     * Best-effort mtime from the date columns of an `ls -la` line. Handles
+     * toybox ISO ("2026-10-23 10:02") and GNU/busybox month-name formats
+     * ("Oct 25 10:25", "Oct 25  2024"). Returns 0 when unparseable.
+     */
+    private fun parseLsDate(fields: List<String>): Long {
+        val iso = fields.firstOrNull { Regex("""\d{4}-\d{2}-\d{2}""").matches(it) }
+        if (iso != null) {
+            val time = fields.firstOrNull { Regex("""\d{1,2}:\d{2}(:\d{2})?""").matches(it) } ?: "00:00"
+            return runCatching {
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                    .parse("$iso $time")?.time
+            }.getOrNull() ?: 0L
+        }
+        val mon = fields.firstOrNull { Regex("""[A-Z][a-z]{2}""").matches(it) } ?: return 0L
+        val i = fields.indexOf(mon)
+        if (i + 2 >= fields.size) return 0L
+        val day = fields[i + 1]
+        if (!Regex("""\d{1,2}""").matches(day)) return 0L
+        val third = fields[i + 2]
+        if (Regex("""\d{4}""").matches(third)) {
+            // "Oct 25 2024" — year column instead of time
+            return runCatching {
+                java.text.SimpleDateFormat("MMM dd yyyy", java.util.Locale.US)
+                    .parse("$mon $day $third")?.time
+            }.getOrNull() ?: 0L
+        }
+        // "Oct 25 10:25" — no year column; assume the current year
+        return runCatching {
+            val d = java.text.SimpleDateFormat("MMM dd HH:mm", java.util.Locale.US)
+                .parse("$mon $day $third") ?: return@runCatching null
+            val cal = java.util.Calendar.getInstance().apply { time = d }
+            cal.set(java.util.Calendar.YEAR, java.util.Calendar.getInstance().get(java.util.Calendar.YEAR))
+            cal.timeInMillis
+        }.getOrNull() ?: 0L
+    }
+
+    /** True for tokens that belong to the date part of an `ls -la` line. */
+    private fun isDateToken(f: String): Boolean =
+        Regex("""\d{4}-\d{2}-\d{2}""").matches(f) ||          // 2026-10-23
+            Regex("""\d{1,2}:\d{2}(:\d{2})?""").matches(f) ||  // 10:02 / 10:02:33
+            Regex("""[A-Z][a-z]{2}""").matches(f) ||           // Oct
+            Regex("""\d{1,2}""").matches(f) ||                 // day-of-month
+            Regex("""\d{4}""").matches(f)                      // year (busybox old dates)
+
+    /** Run a shell command and return its stdout lines (empty on failure). */
+    private fun runShellOut(cmd: String): List<String> {
+        return try {
+            val result = Shell.cmd(cmd).exec()
+            if (result.out.isEmpty()) emptyList() else result.out
+        } catch (e: Exception) {
             emptyList()
         }
     }
@@ -144,7 +306,7 @@ object FileHelper {
         val internal = if (parts.size > 1) parts[1].trimStart('/') else ""
 
         return try {
-            val zip = ZipFile(realZip)
+            val zip = openZip(realZip)
             val entries = zip.fileHeaders
             val result = mutableListOf<FileItem>()
 
@@ -519,7 +681,7 @@ object FileHelper {
         zipPath: String
     ): TransferResult = withContext(Dispatchers.IO) {
         try {
-            val zipFile = ZipFile(zipPath)
+            val zipFile = openZip(zipPath)
             val params = ZipParameters().apply {
                 compressionMethod = CompressionMethod.DEFLATE
                 compressionLevel = CompressionLevel.NORMAL
@@ -548,8 +710,7 @@ object FileHelper {
     ): TransferResult = withContext(Dispatchers.IO) {
         resetCancel()
         try {
-            val zipFile = if (password.isNullOrEmpty()) ZipFile(zipPath)
-            else ZipFile(zipPath, password.toCharArray())
+            val zipFile = openZip(zipPath, password)
             if (zipFile.isEncrypted && password.isNullOrEmpty()) {
                 return@withContext TransferResult(failed = 1)
             }
@@ -583,12 +744,47 @@ object FileHelper {
         withContext(Dispatchers.IO) {
             try {
                 val zipPath = entry.zipParentPath ?: return@withContext false
-                val zipFile = ZipFile(zipPath)
+                val zipFile = openZip(zipPath)
                 val internal = entry.path.substringAfter("!", "").removePrefix("/")
                 zipFile.extractFile(internal, destDir)
                 true
             } catch (e: Exception) {
                 false
+            }
+        }
+
+    /**
+     * Extract one entry into [cacheDir] and return the temp file, so viewers
+     * (image / text) can open zip contents without touching the archive.
+     */
+    suspend fun extractEntryToCache(entry: FileItem, cacheDir: File): File? =
+        withContext(Dispatchers.IO) {
+            try {
+                val zipPath = entry.zipParentPath ?: return@withContext null
+                val zipFile = openZip(zipPath)
+                val internal = entry.path.substringAfter("!", "").removePrefix("/")
+                cacheDir.mkdirs()
+                val out = File(cacheDir, internal.substringAfterLast('/'))
+                zipFile.extractFile(internal, cacheDir.absolutePath)
+                if (out.exists()) out else null
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    /** Read a zip entry as text (zip:// item supported). Returns null on failure. */
+    suspend fun readZipEntryText(entry: FileItem, maxSize: Long = 4 * 1024 * 1024): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val zipPath = entry.zipParentPath ?: return@withContext null
+                val zipFile = openZip(zipPath)
+                val internal = entry.path.substringAfter("!", "").removePrefix("/")
+                val header = zipFile.fileHeaders.firstOrNull { it.fileName == internal }
+                    ?: return@withContext null
+                if (header.uncompressedSize > maxSize) return@withContext null
+                zipFile.getInputStream(header).use { it.readBytes().toString(Charsets.UTF_8) }
+            } catch (e: Exception) {
+                null
             }
         }
 
@@ -599,8 +795,7 @@ object FileHelper {
     suspend fun testZip(zipPath: String, password: String? = null): String =
         withContext(Dispatchers.IO) {
             try {
-                val zipFile = if (password.isNullOrEmpty()) ZipFile(zipPath)
-                else ZipFile(zipPath, password.toCharArray())
+                val zipFile = openZip(zipPath, password)
                 if (!zipFile.isValidZipFile) return@withContext "文件损坏或不是有效的压缩包"
                 if (zipFile.isEncrypted && password.isNullOrEmpty()) {
                     return@withContext "压缩包已加密，需要密码"
@@ -623,13 +818,13 @@ object FileHelper {
         }
 
     fun zipNeedsPassword(zipPath: String): Boolean = try {
-        ZipFile(zipPath).isEncrypted
+        openZip(zipPath).isEncrypted
     } catch (_: Exception) {
         false
     }
 
     fun zipEntryCount(zipPath: String): Int = try {
-        ZipFile(zipPath).fileHeaders.size
+        openZip(zipPath).fileHeaders.size
     } catch (_: Exception) {
         0
     }
@@ -812,6 +1007,109 @@ object FileHelper {
             if (r.isSuccess && r.out.isNotEmpty()) r.out[0] else null
         } catch (_: Exception) {
             null
+        }
+    }
+
+    // ------------------------------------------------------------------- share
+
+    /**
+     * Share a file via FileProvider + system chooser. [authority] is the
+     * applicationId + ".fileprovider" declared in the manifest.
+     */
+    fun shareFile(context: android.content.Context, path: String, authority: String): Boolean {
+        return try {
+            val file = File(path)
+            if (!file.exists()) return false
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+            val mime = android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(
+                android.content.Intent.createChooser(intent, "分享 ${file.name}")
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /** Share several files at once via ACTION_SEND_MULTIPLE. */
+    fun shareFiles(
+        context: android.content.Context,
+        paths: List<String>,
+        authority: String
+    ): Boolean {
+        if (paths.isEmpty()) return false
+        return try {
+            val uris = ArrayList<android.net.Uri>()
+            var mime = "*/*"
+            for (p in paths) {
+                val file = File(p)
+                if (!file.exists()) continue
+                uris.add(
+                    androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+                )
+                val m = android.webkit.MimeTypeMap.getSingleton()
+                    .getMimeTypeFromExtension(file.extension.lowercase())
+                if (m != null && mime == "*/*") mime = m
+            }
+            if (uris.isEmpty()) return false
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+                type = mime
+                putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(
+                android.content.Intent.createChooser(intent, "分享 ${uris.size} 个文件")
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /** Open [path] with a system app via ACTION_VIEW (video/audio/unknown). */    fun openWithSystem(context: android.content.Context, path: String, authority: String): Boolean {
+        return try {
+            val file = File(path)
+            if (!file.exists()) return false
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+            val mime = android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /** Hand an APK to the system package installer. */
+    fun installApk(context: android.content.Context, path: String, authority: String): Boolean {
+        return try {
+            val file = File(path)
+            if (!file.exists()) return false
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 }

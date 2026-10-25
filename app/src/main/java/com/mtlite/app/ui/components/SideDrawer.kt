@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.SdCard
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
@@ -51,7 +52,8 @@ fun SideDrawerContent(
     onTool: (ToolAction) -> Unit,
     onBookmarkRemove: (Long) -> Unit,
     onBookmarkAdd: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onRequestRoot: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -109,6 +111,18 @@ fun SideDrawerContent(
                 }
             )
         }
+
+        // Root access row
+        StorageItem(
+            icon = Icons.Default.Security,
+            title = "Root 授权",
+            subtitle = if (FileHelper.isRootAvailable()) "已授权 · 可访问所有目录" else "点击授予 · 否则仅能部分访问",
+            progress = 0f,
+            onClick = {
+                onRequestRoot()
+                onClose()
+            }
+        )
 
         HorizontalDivider()
 

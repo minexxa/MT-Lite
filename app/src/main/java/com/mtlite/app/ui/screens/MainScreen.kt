@@ -1,26 +1,46 @@
 package com.mtlite.app.ui.screens
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mtlite.app.data.FileItem
 import com.mtlite.app.data.FileManagerViewModel
+import com.mtlite.app.data.FileKind
+import com.mtlite.app.data.OpenChoice
 import com.mtlite.app.data.PaneSide
 import com.mtlite.app.ui.components.*
 import com.mtlite.app.util.FileHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,14 +50,17 @@ fun MainScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var menuExpanded by remember { mutableStateOf(false) }
+    var hiddenMenuExpanded by remember { mutableStateOf(false) }
     var currentTool by remember { mutableStateOf<ToolAction?>(null) }
     var snackMsg by remember { mutableStateOf<String?>(null) }
+    var showExtractTo by remember { mutableStateOf<FileItem?>(null) }
+    var fullApkPath by remember { mutableStateOf<String?>(null) }
 
     val left = viewModel.leftPane
     val right = viewModel.rightPane
     val active = viewModel.activePane
     val activeState = if (active == PaneSide.LEFT) left else right
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val settings = remember { com.mtlite.app.data.SettingsStore.get(context) }
 
     viewModel.toastMessage?.let { msg ->
@@ -47,36 +70,14 @@ fun MainScreen(
         }
     }
 
-    // ---- full-screen tool pages ----
+    // ---- full-screen pages ----
     when (currentTool) {
         ToolAction.TERMINAL -> {
             TerminalScreen(onClose = { currentTool = null })
             return
         }
-        ToolAction.IMAGE_VIEWER -> {
-            ImageViewerScreen(
-                initialPath = if (activeState.items.size == 1) activeState.items[0].path else null,
-                onClose = { currentTool = null }
-            )
-            return
-        }
-        ToolAction.HEX_VIEWER -> {
-            HexViewerScreen(
-                initialPath = activeState.items.firstOrNull { it.path in activeState.selectedItems && !it.isDirectory }?.path,
-                onClose = { currentTool = null }
-            )
-            return
-        }
-        ToolAction.APK_EXTRACT -> {
-            ApkExtractorScreen(onClose = { currentTool = null })
-            return
-        }
-        ToolAction.APK_INFO -> {
-            ApkInfoScreen(
-                apkPath = activeState.items.firstOrNull { it.path in activeState.selectedItems && !it.isDirectory }?.path
-                    ?: "/storage/emulated/0",
-                onClose = { currentTool = null }
-            )
+        ToolAction.SETTINGS -> {
+            SettingsScreen(onClose = { currentTool = null })
             return
         }
         ToolAction.BOOKMARKS -> {
@@ -88,8 +89,11 @@ fun MainScreen(
             )
             return
         }
-        ToolAction.SETTINGS -> {
-            SettingsScreen(onClose = { currentTool = null })
+        ToolAction.TRASH -> {
+            TrashScreen(
+                onClose = { currentTool = null },
+                onEmpty = { viewModel.emptyTrash() }
+            )
             return
         }
         ToolAction.TEXT_EDITOR -> {
@@ -105,10 +109,29 @@ fun MainScreen(
             )
             return
         }
-        ToolAction.TRASH -> {
-            TrashScreen(
-                onClose = { currentTool = null },
-                onEmpty = { viewModel.emptyTrash() }
+        ToolAction.APK_EXTRACT -> {
+            ApkExtractorScreen(onClose = { currentTool = null })
+            return
+        }
+        ToolAction.APK_INFO -> {
+            val p = fullApkPath
+                ?: viewModel.propertiesItem?.path
+                ?: activeState.items.firstOrNull { it.path in activeState.selectedItems && !it.isDirectory }?.path
+                ?: activeState.currentPath
+            ApkInfoScreen(apkPath = p, onClose = { currentTool = null })
+            return
+        }
+        ToolAction.IMAGE_VIEWER -> {
+            ImageViewerScreen(
+                initialPath = activeState.items.firstOrNull { it.path in activeState.selectedItems && !it.isDirectory }?.path,
+                onClose = { currentTool = null }
+            )
+            return
+        }
+        ToolAction.HEX_VIEWER -> {
+            HexViewerScreen(
+                initialPath = activeState.items.firstOrNull { it.path in activeState.selectedItems && !it.isDirectory }?.path,
+                onClose = { currentTool = null }
             )
             return
         }
@@ -137,7 +160,73 @@ fun MainScreen(
                 }
             )
         }
-        null -> {}
+        else -> {}
+    }
+
+    // ---- full-screen viewers (click dispatch targets) ----
+    viewModel.imageViewerPath?.let { path ->
+        ImageViewerScreen(initialPath = path, onClose = { viewModel.dismissImageViewer() })
+        return
+    }
+    viewModel.hexViewerPath?.let { path ->
+        HexViewerScreen(initialPath = path, onClose = { viewModel.dismissHexViewer() })
+        return
+    }
+
+    // Long-press menu content shared by both panes (single vs batch).
+    val paneMenu: @Composable (PaneSide, FileItem) -> Unit = { side, item ->
+        val paneState = if (side == PaneSide.LEFT) left else right
+        val batch = item.path in paneState.selectedItems && paneState.selectedItems.size > 1
+        val targets = if (batch) {
+            paneState.items.filter { it.path in paneState.selectedItems && it.name != ".." }
+        } else {
+            listOf(item)
+        }
+        LongPressMenu(
+            expanded = true,
+            item = item,
+            targets = targets,
+            batchMode = batch,
+            onDismiss = { viewModel.dismissLongPressMenu() },
+            onCopy = { viewModel.copyToOtherPane(side, targets) },
+            onMove = { viewModel.moveToOtherPane(side, targets) },
+            onDelete = { viewModel.requestDelete(targets) },
+            onRename = {
+                if (batch) {
+                    viewModel.batchFind = ""
+                    viewModel.batchReplace = ""
+                    viewModel.showBatchRenameDialog = true
+                } else {
+                    viewModel.showRename(item)
+                }
+            },
+            onCompress = { viewModel.compressItems(targets) },
+            onProperties = {
+                if (batch) viewModel.showMultiProperties(targets)
+                else viewModel.showProperties(item)
+            },
+            onShare = {
+                if (batch) viewModel.shareItems(targets) else viewModel.shareItem(item)
+            },
+            onExtractTo = { showExtractTo = item },
+            onOpenWith = { viewModel.showOpenWith(item) },
+            onAddBookmark = { viewModel.showBookmarkAddDialog = true },
+            onSignatureInfo = { viewModel.openApkDialog(item) },
+            onExtractToOtherPane = { viewModel.extractEntryToOtherPane(item) },
+            onBatchRename = {
+                viewModel.batchFind = ""
+                viewModel.batchReplace = ""
+                viewModel.showBatchRenameDialog = true
+            },
+            onChmod = { viewModel.showChmodDialog = true },
+            onHash = { viewModel.hashItem(item) },
+            onHex = { viewModel.openHex(item) },
+            onAddToZip = { viewModel.addToZipTargets(side, targets) },
+            onTestZip = {
+                targets.firstOrNull { it.fileKind == FileKind.ARCHIVE && !it.isZipEntry }
+                    ?.let { viewModel.testZipTarget(it.path) }
+            }
+        )
     }
 
     ModalNavigationDrawer(
@@ -150,7 +239,20 @@ fun MainScreen(
                     onTool = { currentTool = it },
                     onBookmarkRemove = { viewModel.removeBookmark(it) },
                     onBookmarkAdd = { viewModel.showBookmarkAddDialog = true },
-                    onClose = { scope.launch { drawerState.close() } }
+                    onClose = { scope.launch { drawerState.close() } },
+                    onRequestRoot = {
+                        scope.launch {
+                            val isRoot = withContext(Dispatchers.IO) {
+                                com.topjohnwu.superuser.Shell.getShell().isRoot
+                            }
+                            viewModel.toastMessage =
+                                if (isRoot) "Root 已授权，可访问所有目录" else "未获得 Root 权限，仅能部分访问"
+                            viewModel.refreshPane(active)
+                            viewModel.refreshPane(
+                                if (active == PaneSide.LEFT) PaneSide.RIGHT else PaneSide.LEFT
+                            )
+                        }
+                    }
                 )
             }
         }
@@ -169,8 +271,9 @@ fun MainScreen(
                                     viewModel.showJumpDialog = true
                                 }
                             )
-                            val folders = activeState.items.count { it.isDirectory && it.name != ".." }
-                            val files = activeState.items.count { !it.isDirectory }
+                            val visible = activeState.visibleItems
+                            val folders = visible.count { it.isDirectory && it.name != ".." }
+                            val files = visible.count { !it.isDirectory }
                             val (used, total) = FileHelper.getStorageInfo("/storage/emulated/0")
                             Text(
                                 text = "文件夹: $folders  文件: $files  储存: ${FileItem.formatSize(used)}/${FileItem.formatSize(total)}" +
@@ -200,94 +303,141 @@ fun MainScreen(
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "更多")
                         }
+                        // ---------- 图二: overflow menu ----------
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false }
                         ) {
-                            val hasSelection = activeState.inSelectionMode
                             DropdownMenuItem(
-                                text = { Text("重命名") },
-                                enabled = activeState.selectedItems.size == 1,
+                                text = { Text("刷新") },
+                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
                                 onClick = {
-                                    activeState.items.firstOrNull { it.path in activeState.selectedItems }
-                                        ?.let { viewModel.showRename(it) }
+                                    viewModel.refreshPane(active)
                                     menuExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("属性") },
-                                enabled = activeState.selectedItems.size == 1,
+                                text = { Text("搜索") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                                 onClick = {
-                                    activeState.items.firstOrNull { it.path in activeState.selectedItems }
-                                        ?.let { viewModel.showProperties(it) }
+                                    viewModel.showSearchDialog = true
                                     menuExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("批量重命名") },
-                                enabled = hasSelection,
+                                text = {
+                                    Text(
+                                        if (activeState.searchQuery != null) "搜索结果: ${activeState.searchQuery}"
+                                        else "搜索结果"
+                                    )
+                                },
+                                leadingIcon = { Icon(Icons.Default.ListAlt, contentDescription = null) },
                                 onClick = {
-                                    viewModel.showBatchRenameDialog = true
+                                    if (activeState.searchQuery == null) {
+                                        viewModel.showSearchDialog = true
+                                    } else {
+                                        viewModel.toastMessage = "当前显示搜索 \"${activeState.searchQuery}\" 的结果"
+                                    }
                                     menuExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("修改权限 (chmod)") },
-                                enabled = hasSelection,
+                                text = { Text("全选") },
+                                leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = null) },
                                 onClick = {
-                                    viewModel.showChmodDialog = true
+                                    viewModel.selectAll(active)
                                     menuExpanded = false
                                 }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("过滤") },
+                                leadingIcon = { Icon(Icons.Default.FilterAlt, contentDescription = null) },
+                                onClick = {
+                                    viewModel.showFilterDialog = true
+                                    menuExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("排序方式") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null) },
+                                onClick = {
+                                    viewModel.showSortDialog = true
+                                    menuExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("打开终端") },
+                                leadingIcon = { Icon(Icons.Default.Terminal, contentDescription = null) },
+                                onClick = {
+                                    currentTool = ToolAction.TERMINAL
+                                    menuExpanded = false
+                                }
+                            )
+                            // 隐藏文件▶ with nested submenu
+                            DropdownMenuItem(
+                                text = { Text("隐藏文件") },
+                                leadingIcon = { Icon(Icons.Default.VisibilityOff, contentDescription = null) },
+                                trailingIcon = {
+                                    Box {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                        DropdownMenu(
+                                            expanded = hiddenMenuExpanded,
+                                            onDismissRequest = { hiddenMenuExpanded = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text(if (activeState.showHidden) "不显示隐藏文件" else "显示隐藏文件") },
+                                                onClick = {
+                                                    viewModel.toggleShowHidden()
+                                                    hiddenMenuExpanded = false
+                                                    menuExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = { hiddenMenuExpanded = true }
                             )
                             HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("添加到压缩包") },
-                                enabled = hasSelection,
-                                onClick = {
-                                    activeState.items.firstOrNull { it.fileKind == com.mtlite.app.data.FileKind.ARCHIVE && !it.isZipEntry }
-                                        ?.let { viewModel.addToZip(active, it.path) }
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("测试压缩包") },
-                                onClick = {
-                                    activeState.items.firstOrNull { it.fileKind == com.mtlite.app.data.FileKind.ARCHIVE && !it.isZipEntry }
-                                        ?.let { viewModel.testZipAt(it.path, "") }
-                                    menuExpanded = false
-                                }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text(if (activeState.showHidden) "隐藏隐藏文件" else "显示隐藏文件") },
-                                onClick = {
-                                    viewModel.toggleShowHidden()
-                                    menuExpanded = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("反选") },
-                                onClick = {
-                                    viewModel.invertSelection(active)
-                                    menuExpanded = false
-                                }
-                            )
                             DropdownMenuItem(
                                 text = { Text("添加书签") },
+                                leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
                                 onClick = {
                                     viewModel.showBookmarkAddDialog = true
                                     menuExpanded = false
                                 }
                             )
-                            if (activeState.searchQuery != null) {
-                                DropdownMenuItem(
-                                    text = { Text("清除搜索结果") },
-                                    onClick = {
-                                        viewModel.clearSearch(active)
-                                        menuExpanded = false
-                                    }
-                                )
-                            }
+                            DropdownMenuItem(
+                                text = { Text("设为首页") },
+                                leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
+                                onClick = {
+                                    viewModel.setAsHome()
+                                    menuExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("交换窗口") },
+                                leadingIcon = { Icon(Icons.Default.SwapHoriz, contentDescription = null) },
+                                onClick = {
+                                    viewModel.swapPanes()
+                                    menuExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("设置") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                onClick = {
+                                    currentTool = ToolAction.SETTINGS
+                                    menuExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("退出") },
+                                leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    (context as? Activity)?.finish()
+                                }
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -302,25 +452,11 @@ fun MainScreen(
                 BottomActionBar(
                     canGoBack = activeState.historyIndex > 0,
                     canGoForward = activeState.historyIndex < activeState.history.lastIndex,
-                    hasClipboard = !viewModel.clipboard.isEmpty,
                     onBack = { viewModel.goBack(active) },
                     onForward = { viewModel.goForward(active) },
                     onNew = { viewModel.showNewDialog = true },
                     onSync = { viewModel.syncPanes(active) },
-                    onUp = { viewModel.goUp(active) },
-                    onSort = { viewModel.showSortDialog = true },
-                    onSearch = { viewModel.showSearchDialog = true },
-                    onCopy = { viewModel.copySelected(active) },
-                    onCut = { viewModel.cutSelected(active) },
-                    onPaste = { viewModel.paste(active) },
-                    onDelete = {
-                        if (activeState.inSelectionMode) {
-                            if (settings.confirmDelete) viewModel.showDeleteConfirm = true
-                            else viewModel.deleteSelected(active)
-                        }
-                    },
-                    onSelectAll = { viewModel.selectAll(active) },
-                    onZip = { viewModel.showZipCreateDialog = true }
+                    onUp = { viewModel.goUp(active) }
                 )
             },
             snackbarHost = {
@@ -353,6 +489,9 @@ fun MainScreen(
                         viewModel.switchActivePane(PaneSide.LEFT)
                         viewModel.onItemLongClick(PaneSide.LEFT, it)
                     },
+                    onSwipeSelect = { viewModel.toggleSelect(PaneSide.LEFT, it.path) },
+                    longPressItem = if (viewModel.longPressSide == PaneSide.LEFT) viewModel.longPressItem else null,
+                    menuContent = { item -> paneMenu(PaneSide.LEFT, item) },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -377,6 +516,9 @@ fun MainScreen(
                         viewModel.switchActivePane(PaneSide.RIGHT)
                         viewModel.onItemLongClick(PaneSide.RIGHT, it)
                     },
+                    onSwipeSelect = { viewModel.toggleSelect(PaneSide.RIGHT, it.path) },
+                    longPressItem = if (viewModel.longPressSide == PaneSide.RIGHT) viewModel.longPressItem else null,
+                    menuContent = { item -> paneMenu(PaneSide.RIGHT, item) },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -427,6 +569,17 @@ fun MainScreen(
         )
     }
 
+    if (viewModel.showFilterDialog) {
+        FilterDialog(
+            initialQuery = activeState.filterQuery,
+            onDismiss = { viewModel.showFilterDialog = false },
+            onApply = { q ->
+                viewModel.setFilter(active, q)
+                viewModel.showFilterDialog = false
+            }
+        )
+    }
+
     viewModel.renameTarget?.let { target ->
         if (viewModel.showRenameDialog) {
             RenameDialog(
@@ -448,6 +601,7 @@ fun MainScreen(
                 },
                 onOpenApkInfo = {
                     viewModel.showPropertiesDialog = false
+                    fullApkPath = item.path
                     currentTool = ToolAction.APK_INFO
                 }
             )
@@ -464,7 +618,7 @@ fun MainScreen(
     if (viewModel.showZipCreateDialog) {
         ZipCreateDialog(
             currentPath = activeState.currentPath,
-            count = activeState.selectedItems.size,
+            count = activeState.selectedItems.size.takeIf { it > 0 } ?: viewModel.zipSingleCount(),
             onDismiss = { viewModel.showZipCreateDialog = false },
             onConfirm = { name, pwd -> viewModel.createZipFromSelection(active, name, pwd) }
         )
@@ -497,14 +651,83 @@ fun MainScreen(
     }
 
     if (viewModel.showDeleteConfirm) {
+        val pending = viewModel.pendingDeleteList().ifEmpty {
+            activeState.items.filter { it.path in activeState.selectedItems }
+        }
         ConfirmDeleteDialog(
-            count = activeState.selectedItems.size,
+            count = pending.size,
             useRecycleBin = settings.useRecycleBin,
-            onDismiss = { viewModel.showDeleteConfirm = false },
-            onConfirm = {
-                viewModel.deleteSelected(active)
+            onDismiss = {
                 viewModel.showDeleteConfirm = false
+                viewModel.clearPendingDeleteItems()
+            },
+            onConfirm = {
+                viewModel.confirmDelete()
             }
+        )
+    }
+
+    // ---- 打开方式 (图三) ----
+    viewModel.openWithItem?.let { item ->
+        if (viewModel.showOpenWithDialog) {
+            OpenWithDialog(
+                item = item,
+                onDismiss = { viewModel.dismissOpenWith() },
+                onChoice = { choice ->
+                    viewModel.handleOpenChoice(item, choice)
+                    viewModel.dismissOpenWith()
+                }
+            )
+        }
+    }
+
+    // ---- APK 信息 (图四) ----
+    viewModel.apkDialogItem?.let { item ->
+        ApkInfoDialog(
+            item = item,
+            info = viewModel.apkDialogInfo,
+            onDismiss = { viewModel.dismissApkDialog() },
+            onInstall = { viewModel.installApk(item) },
+            onShare = { viewModel.shareItem(item) },
+            onFullInfo = {
+                viewModel.dismissApkDialog()
+                viewModel.showPropertiesDialog = false
+                fullApkPath = item.path
+                currentTool = ToolAction.APK_INFO
+            }
+        )
+    }
+
+    // ---- 解压到... ----
+    showExtractTo?.let { item ->
+        ExtractToDialog(
+            archiveName = item.name,
+            initialDest = viewModel.rightPane.currentPath,
+            needsPassword = FileHelper.zipNeedsPassword(item.path),
+            initialPassword = viewModel.rememberedZipPassword(item.path),
+            onDismiss = { showExtractTo = null },
+            onConfirm = { dest, pwd ->
+                if (pwd.isNotBlank()) viewModel.rememberZipPassword(item.path, pwd)
+                viewModel.extractZipAt(active, item.path, dest, pwd)
+                showExtractTo = null
+            }
+        )
+    }
+
+    // ---- 多选属性汇总 ----
+    if (viewModel.showMultiPropsDialog) {
+        MultiPropertiesDialog(
+            items = viewModel.multiPropsItems,
+            onDismiss = { viewModel.dismissMultiProperties() }
+        )
+    }
+
+    // ---- 哈希结果 ----
+    viewModel.hashResult?.let { (name, digest) ->
+        HashResultDialog(
+            name = name,
+            digest = digest,
+            onDismiss = { viewModel.dismissHashResult() }
         )
     }
 
@@ -516,7 +739,7 @@ fun MainScreen(
         )
     }
 
-    if (viewModel.showTextEditor && currentTool == null) {
+    if (viewModel.showTextEditor && viewModel.imageViewerPath == null && viewModel.hexViewerPath == null) {
         TextEditorScreen(
             path = viewModel.textEditorPath,
             initialContent = viewModel.textEditorContent,

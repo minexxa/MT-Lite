@@ -488,6 +488,63 @@ private fun PropertyRow(label: String, value: String) {
     }
 }
 
+/** Summary properties for a multi-selection (批量属性). */
+@Composable
+fun MultiPropertiesDialog(
+    items: List<FileItem>,
+    onDismiss: () -> Unit
+) {
+    val dirs = items.count { it.isDirectory }
+    val files = items.size - dirs
+    val totalSize = items.filter { !it.isDirectory }.sumOf { it.size }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("属性 (${items.size} 项)") },
+        text = {
+            Column {
+                PropertyRow("项目总数", "${items.size}")
+                PropertyRow("文件夹", "$dirs 个")
+                PropertyRow("文件", "$files 个")
+                PropertyRow("总大小", "${FileItem.formatSize(totalSize)} ($totalSize B)")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
+/** SHA-256 result for a single file (工具 → 计算哈希). */
+@Composable
+fun HashResultDialog(
+    name: String,
+    digest: String,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("SHA-256") },
+        text = {
+            Column {
+                Text(
+                    text = name,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text(
+                    text = digest,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
 @Composable
 fun OpProgressDialog(progress: com.mtlite.app.data.OpProgress, onCancel: () -> Unit, onDismiss: () -> Unit) {
     if (progress.finished) {
