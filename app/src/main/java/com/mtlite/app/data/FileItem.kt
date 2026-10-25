@@ -72,6 +72,10 @@ data class FileItem(
             )
         }
 
+        /** Official MT style storage text, e.g. "198.10G". */
+        fun formatStorage(bytes: Long): String =
+            String.format(Locale.US, "%.2fG", bytes / 1024.0 / 1024.0 / 1024.0)
+
         fun formatSize(bytes: Long): String {
             if (bytes < 1024) return "$bytes B"
             val kb = bytes / 1024.0

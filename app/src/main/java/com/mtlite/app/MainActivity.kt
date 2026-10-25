@@ -31,15 +31,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        val settings = SettingsStore.get(this)
+        val darkApp = when (settings.themeMode) {
+            SettingsStore.ThemeMode.SYSTEM ->
+                (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+            SettingsStore.ThemeMode.LIGHT -> false
+            SettingsStore.ThemeMode.DARK -> true
+        }
+        // Dark toolbar -> always light status-bar icons; nav bar follows the app theme.
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = if (darkApp)
+                androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            else
+                androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        )
 
         // Request storage permissions
         requestStoragePermissions()
 
         // Init Shell for Root
         Shell.getShell()
-
-        val settings = SettingsStore.get(this)
 
         setContent {
             MTLiteTheme(themeMode = settings.themeMode) {

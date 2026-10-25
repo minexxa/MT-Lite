@@ -1,7 +1,15 @@
 package com.mtlite.app.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import com.mtlite.app.ui.theme.MTStyle
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -59,17 +67,7 @@ fun FileListPane(
         if (idx >= 0) runCatching { listState.animateScrollToItem(idx) }
     }
 
-    Column(modifier = modifier.fillMaxHeight()) {
-        // Active indicator
-        if (isActive) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-        }
-
+    Column(modifier = modifier.fillMaxHeight().background(MTStyle.listBg())) {
         state.searchQuery?.let { q ->
             Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
                 Row(
@@ -126,7 +124,7 @@ fun FileListPane(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 4.dp)
+                contentPadding = PaddingValues(0.dp)
             ) {
                 items(visible, key = { it.path }) { item ->
                     FileListItem(
@@ -169,6 +167,7 @@ fun FileListItem(
         Row(
             modifier = modifier
                 .fillMaxWidth()
+                .height(MTStyle.RowHeight)
                 .background(bg)
                 .combinedClickable(
                     onClick = onClick,
@@ -188,23 +187,21 @@ fun FileListItem(
                         }
                     )
                 }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(start = 5.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = if (item.isDirectory) Icons.Default.Folder else iconFor(item),
-                contentDescription = null,
-                tint = tintFor(item),
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
+            FileIconTile(item)
+            Spacer(Modifier.width(4.dp))
+            Box(Modifier.weight(1f).fillMaxHeight()) {
                 Text(
                     text = item.name,
-                    fontSize = 15.sp,
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp,
+                    letterSpacing = 0.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MTStyle.nameColor(),
+                    modifier = Modifier.paddingFromBaseline(top = 18.7.dp)
                 )
                 if (item.name != "..") {
                     Text(
@@ -219,10 +216,13 @@ fun FileListItem(
                                 append(item.permission)
                             }
                         },
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
+                        letterSpacing = 0.sp,
+                        color = MTStyle.dateColor(),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.paddingFromBaseline(top = 33.dp)
                     )
                 }
             }
@@ -236,6 +236,53 @@ fun FileListItem(
             }
         }
         menu?.invoke()
+    }
+}
+
+/** Official-style 28dp rounded dark tile with a white glyph. */
+@Composable
+private fun FileIconTile(item: FileItem) {
+    val shape = RoundedCornerShape(MTStyle.TileRadius)
+    Box(
+        Modifier
+            .size(MTStyle.TileSize)
+            .shadow(1.5.dp, shape, clip = false)
+            .background(MTStyle.tile(), shape)
+    ) {
+        if (item.isDirectory) {
+            FolderGlyph(Modifier.padding(start = 6.8.dp, top = 8.2.dp))
+        } else {
+            Icon(
+                imageVector = iconFor(item),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.align(Alignment.Center).size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FolderGlyph(modifier: Modifier = Modifier) {
+    Canvas(modifier.size(13.8.dp, 10.9.dp)) {
+        val d = density
+        val path = Path().apply {
+            moveTo(0f, 0f)
+            lineTo(5.7f * d, 0f)
+            lineTo(6.85f * d, 1.25f * d)
+            lineTo(13.8f * d, 1.25f * d)
+            lineTo(13.8f * d, 10.9f * d)
+            lineTo(0f, 10.9f * d)
+            close()
+        }
+        drawIntoCanvas { canvas ->
+            val paint = Paint().apply {
+                color = Color.White
+                isAntiAlias = true
+                pathEffect = PathEffect.cornerPathEffect(1.1f * d)
+            }
+            canvas.drawPath(path, paint)
+        }
     }
 }
 

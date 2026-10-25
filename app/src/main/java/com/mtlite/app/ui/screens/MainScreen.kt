@@ -24,7 +24,9 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.mtlite.app.ui.theme.ShadowToLeft
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -259,36 +261,16 @@ fun MainScreen(
     ) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = activeState.currentPath,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable {
-                                    viewModel.showJumpDialog = true
-                                }
-                            )
-                            val visible = activeState.visibleItems
-                            val folders = visible.count { it.isDirectory && it.name != ".." }
-                            val files = visible.count { !it.isDirectory }
-                            val (used, total) = FileHelper.getStorageInfo("/storage/emulated/0")
-                            Text(
-                                text = "文件夹: $folders  文件: $files  储存: ${FileItem.formatSize(used)}/${FileItem.formatSize(total)}" +
-                                        if (FileHelper.isRootAvailable()) "  [Root]" else "",
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.7f),
-                                maxLines = 1
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "菜单")
-                        }
-                    },
+                val visibleNow = activeState.visibleItems
+                val folderCount = visibleNow.count { it.isDirectory && it.name != ".." }
+                val fileCount = visibleNow.count { !it.isDirectory }
+                val (usedB, totalB) = FileHelper.getStorageInfo("/storage/emulated/0")
+                MTTopBar(
+                    title = activeState.currentPath.let { if (it.endsWith("/")) it else "$it/" },
+                    subtitle = "文件夹: $folderCount  文件: $fileCount  储存: " +
+                            "${FileItem.formatStorage(usedB)}/${FileItem.formatStorage(totalB)}",
+                    onNavigationClick = { scope.launch { drawerState.open() } },
+                    onTitleClick = { viewModel.showJumpDialog = true },
                     actions = {
                         if (activeState.inSelectionMode) {
                             Text(
@@ -439,13 +421,7 @@ fun MainScreen(
                                 }
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color(0xFF212121),
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White,
-                        actionIconContentColor = Color.White
-                    )
+                    }
                 )
             },
             bottomBar = {
@@ -478,6 +454,7 @@ fun MainScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
                 FileListPane(
                     state = left,
                     isActive = active == PaneSide.LEFT,
@@ -493,17 +470,11 @@ fun MainScreen(
                     longPressItem = if (viewModel.longPressSide == PaneSide.LEFT) viewModel.longPressItem else null,
                     menuContent = { item -> paneMenu(PaneSide.LEFT, item) },
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
+                        .fillMaxSize()
                         .clickable { viewModel.switchActivePane(PaneSide.LEFT) }
                 )
-
-                Box(
-                    Modifier
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                )
+                ShadowToLeft(Modifier.align(Alignment.CenterEnd))
+                }
 
                 FileListPane(
                     state = right,
