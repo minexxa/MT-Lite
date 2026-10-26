@@ -738,13 +738,17 @@ object FileHelper {
 
     suspend fun addToZip(
         items: List<FileItem>,
-        zipPath: String
+        zipPath: String,
+        destDirInZip: String? = null
     ): TransferResult = withContext(Dispatchers.IO) {
         try {
             val zipFile = openZip(zipPath)
+            // destDirInZip: zip 预览内当前所在子目录，作为添加的根前缀
+            val root = destDirInZip?.trim('/')?.takeIf { it.isNotEmpty() }?.let { "$it/" }
             val params = ZipParameters().apply {
                 compressionMethod = CompressionMethod.DEFLATE
                 compressionLevel = CompressionLevel.NORMAL
+                if (root != null) rootFolderNameInZip = root
             }
             var ok = 0
             for (item in items) {

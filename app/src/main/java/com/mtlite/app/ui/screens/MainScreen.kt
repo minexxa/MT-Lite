@@ -208,8 +208,9 @@ fun MainScreen(
             item = item,
             targets = targets,
             batchMode = batch,
+            otherPaneIsZip = viewModel.isOtherPaneArchive(side),
             onDismiss = { viewModel.dismissLongPressMenu() },
-            onCopy = { viewModel.copyToOtherPane(side, targets) },
+            onCopy = { viewModel.addOrCopyToOtherPane(side, targets) },
             onMove = { viewModel.moveToOtherPane(side, targets) },
             onDelete = { viewModel.requestDelete(targets) },
             onRename = {

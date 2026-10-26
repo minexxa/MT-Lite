@@ -403,6 +403,44 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 另一窗口是否处于压缩包预览（zip:// 虚拟路径）。 */
+    fun isOtherPaneArchive(side: PaneSide): Boolean = otherPanePath(side).startsWith("zip://")
+
+    /**
+     * 长按「<- 添加」：另一窗口为普通目录 → 复制过去；
+     * 另一窗口为压缩包预览 → 把文件/文件夹添加进该压缩包
+     * （ZIP 类可直接追加；添加到预览中当前所在的子目录下）。
+     */
+    fun addOrCopyToOtherPane(side: PaneSide, items: List<FileItem>) {
+        val dest = otherPanePath(side)
+        if (!dest.startsWith("zip://")) {
+            transferToOtherPane(side, items, isCut = false)
+            return
+        }
+        val archivePath = dest.removePrefix("zip://").substringBefore("!")
+        if (com.mtlite.app.util.ArchiveHelper.detectType(archivePath) != com.mtlite.app.util.ArchiveType.ZIP) {
+            toastMessage = "该压缩包格式暂不支持添加（仅 ZIP 类可编辑）"
+            return
+        }
+        val real = items.filter { !it.isZipEntry && it.name != ".." }
+        if (real.isEmpty()) {
+            toastMessage = "无可添加项"
+            return
+        }
+        // zip 预览里当前所在的子目录（zip://archive!a/b → a/b）
+        val internalDir = dest.substringAfter("!", "").removePrefix("/").trimEnd('/')
+        viewModelScope.launch {
+            opProgress = OpProgress(active = true, title = "添加", total = real.size)
+            val result = FileHelper.addToZip(real, archivePath, internalDir.ifEmpty { null })
+            opProgress = OpProgress(finished = true, message = result.summary)
+            toastMessage = if (result.success > 0) {
+                "已添加 ${result.success} 项到 ${File(archivePath).name}" +
+                    (if (internalDir.isNotEmpty()) "/$internalDir" else "")
+            } else "添加失败"
+            refreshPane(if (side == PaneSide.LEFT) PaneSide.RIGHT else PaneSide.LEFT)
+        }
+    }
+
     /** Long-press 复制: selected (or the pressed item) → other pane directory. */
     fun copyToOtherPane(side: PaneSide, items: List<FileItem>) {
         transferToOtherPane(side, items, isCut = false)

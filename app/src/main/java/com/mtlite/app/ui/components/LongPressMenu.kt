@@ -59,6 +59,7 @@ fun LongPressMenu(
     item: FileItem,
     targets: List<FileItem>,
     batchMode: Boolean,
+    otherPaneIsZip: Boolean = false,
     onDismiss: () -> Unit,
     onCopy: () -> Unit,
     onMove: () -> Unit,
@@ -95,8 +96,11 @@ fun LongPressMenu(
         cells += MenuCell(Icons.Default.Check, "打开方式...") { act(onOpenWith)() }
         cells += MenuCell(Icons.Default.Error, "属性") { act(onProperties)() }
     } else {
-        cells += MenuCell(Icons.Default.Add, "<- 添加") { act(onCopy)() }
-        cells += MenuCell(Icons.Default.ContentCut, "<- 移动") { act(onMove)() }
+        cells += MenuCell(
+            Icons.Default.Add,
+            if (otherPaneIsZip) "<- 添加到压缩包" else "<- 添加"
+        ) { act(onCopy)() }
+        cells += MenuCell(Icons.Default.ContentCut, "<- 移动", !otherPaneIsZip) { act(onMove)() }
         cells += MenuCell(Icons.Default.Delete, "删除") { act(onDelete)() }
         cells += MenuCell(Icons.Default.Edit, if (batchMode) "批量重命名" else "重命名") { act(onRename)() }
         cells += MenuCell(Icons.Default.Build, "工具") { toolsExpanded = true }
