@@ -49,6 +49,11 @@
             </intent-filter>
         </activity>
 
+        <!-- result callback of split-package (PackageInstaller) installs -->
+        <receiver
+            android:name=".util.InstallResultReceiver"
+            android:exported="false" />
+
         <!-- Shizuku provider -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

@@ -1256,11 +1256,46 @@ object FileHelper {
         }
     }
 
+    private fun shq(s: String) = "'" + s.replace("'", "'\\''") + "'"
+
+    /**
+     * Silent install through `pm` with root. Returns (success, message).
+     * First tries installing straight from the path; if that fails (SELinux /
+     * storage visibility) the file is streamed into `pm install -S`.
+     */
+    suspend fun installApkRoot(path: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            val file = File(path)
+            if (!file.exists()) return@withContext false to "文件不存在"
+            val q = shq(path)
+            var r = Shell.cmd("pm install -r -d $q").exec()
+            var text = (r.out + r.err).joinToString("\n")
+            if (!text.contains("Success")) {
+                r = Shell.cmd("pm install -r -d -S ${file.length()} < $q").exec()
+                text = (r.out + r.err).joinToString("\n")
+            }
+            if (text.contains("Success")) true to "安装成功"
+            else false to (text.lineSequence().lastOrNull { it.isNotBlank() } ?: "安装失败")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false to (e.message ?: "安装失败")
+        }
+    }
+
     /** Hand an APK to the system package installer. */
     fun installApk(context: android.content.Context, path: String, authority: String): Boolean {
         return try {
             val file = File(path)
             if (!file.exists()) return false
+            // Android 8+: the "install unknown apps" permission must be granted first.
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                val settings = android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    android.net.Uri.parse("package:${context.packageName}")
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(settings)
+                return true
+            }
             val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
             val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")

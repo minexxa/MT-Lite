@@ -47,7 +47,7 @@ data class FileItem(
 
     companion object {
         val ZIP_EXTS = setOf(
-            "zip", "apk", "jar", "aar", "xapk", "apks",
+            "zip", "apk", "jar", "aar", "xapk", "apks", "apkm",
             "7z", "tar", "tar.gz", "gz", "bz2", "xz", "tgz", "tbz", "tbz2", "txz", "deb"
         )
         val IMAGE_EXTS = setOf("png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "heic", "heif")

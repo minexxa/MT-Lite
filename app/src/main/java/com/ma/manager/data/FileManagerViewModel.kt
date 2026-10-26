@@ -858,15 +858,42 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
         if (!ok) toastMessage = "没有应用可以打开此文件"
     }
 
+    /**
+     * Install an APK: silently through `pm` when root is available, otherwise
+     * (or when the root install fails) via the system package installer.
+     * APKs inside an archive are extracted to the cache first.
+     */
     fun installApk(item: FileItem) {
-        if (item.isZipEntry) {
-            toastMessage = "请先解压该 APK"
-            return
-        }
         val ctx = getApplication<android.app.Application>().applicationContext
         val authority = ctx.packageName + ".fileprovider"
-        val ok = FileHelper.installApk(ctx, item.path, authority)
-        if (!ok) toastMessage = "无法启动安装器"
+        viewModelScope.launch {
+            val path = if (item.isZipEntry) {
+                toastMessage = "正在提取 APK..."
+                FileHelper.extractEntryToCache(item, File(ctx.cacheDir, "install"))?.absolutePath
+            } else item.path
+            if (path == null) {
+                toastMessage = "无法提取该 APK"
+                return@launch
+            }
+            val root = withContext(Dispatchers.IO) { FileHelper.isRootAvailable() }
+            if (com.ma.manager.util.SplitInstaller.isSplitPackage(File(path).name)) {
+                val (_, msg) = com.ma.manager.util.SplitInstaller.install(ctx, path, root) {
+                    toastMessage = it
+                }
+                toastMessage = msg
+                return@launch
+            }
+            if (root) {
+                toastMessage = "正在安装（Root）..."
+                val (ok, msg) = FileHelper.installApkRoot(path)
+                if (ok) {
+                    toastMessage = "安装成功"
+                    return@launch
+                }
+                toastMessage = "Root 安装失败：$msg，改用系统安装器"
+            }
+            if (!FileHelper.installApk(ctx, path, authority)) toastMessage = "无法启动安装器"
+        }
     }
 
     fun shareItem(item: FileItem) {

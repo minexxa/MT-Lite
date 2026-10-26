@@ -73,7 +73,7 @@ object ArchiveHelper {
             n.endsWith(".tar") -> ArchiveType.TAR
             n.endsWith(".7z") -> ArchiveType.SEVENZ
             n.endsWith(".zip") || n.endsWith(".jar") || n.endsWith(".apk") ||
-                n.endsWith(".aar") || n.endsWith(".xapk") || n.endsWith(".apks") -> ArchiveType.ZIP
+                n.endsWith(".aar") || n.endsWith(".xapk") || n.endsWith(".apks") || n.endsWith(".apkm") -> ArchiveType.ZIP
             n.endsWith(".gz") -> ArchiveType.GZ
             n.endsWith(".bz2") -> ArchiveType.BZ2
             n.endsWith(".xz") -> ArchiveType.XZ

@@ -78,7 +78,8 @@ fun LongPressMenu(
     onHash: () -> Unit,
     onHex: () -> Unit,
     onAddToZip: () -> Unit,
-    onTestZip: () -> Unit
+    onTestZip: () -> Unit,
+    onInstall: () -> Unit = {}
 ) {
     if (!expanded) return
     val inZip = item.isZipEntry
@@ -110,6 +111,9 @@ fun LongPressMenu(
         cells += MenuCell(Icons.Default.Check, "打开方式...", !batchMode) { act(onOpenWith)() }
         cells += MenuCell(Icons.Default.CollectionsBookmark, "添加书签", !batchMode) { act(onAddBookmark)() }
         if (item.fileKind == FileKind.ARCHIVE && !batchMode) {
+            if (com.ma.manager.util.SplitInstaller.isSplitPackage(item.name)) {
+                cells += MenuCell(Icons.Default.Download, "安装") { act(onInstall)() }
+            }
             cells += MenuCell(Icons.Default.Unarchive, "解压到...") { act(onExtractTo)() }
         }
         if (item.fileKind == FileKind.APK && !batchMode) {

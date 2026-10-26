@@ -234,6 +234,7 @@ fun MainScreen(
             onOpenWith = { viewModel.showOpenWith(item) },
             onAddBookmark = { viewModel.showBookmarkAddDialog = true },
             onSignatureInfo = { viewModel.openApkDialog(item) },
+            onInstall = { viewModel.installApk(item) },
             onExtractToOtherPane = { viewModel.extractEntryToOtherPane(item) },
             onBatchRename = {
                 viewModel.batchFind = ""

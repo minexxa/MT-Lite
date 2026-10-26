@@ -37,7 +37,9 @@ fun OpenWithDialog(
         add(OpenChoice.MEDIA_PLAYER to "内置播放器")
         add(OpenChoice.HEX_VIEWER to "Hex 查看")
         add(OpenChoice.SYSTEM_APP to "系统应用打开")
-        if (item.fileKind == FileKind.APK) add(OpenChoice.INSTALL to "安装")
+        if (item.fileKind == FileKind.APK || com.ma.manager.util.SplitInstaller.isSplitPackage(item.name)) {
+            add(OpenChoice.INSTALL to "安装")
+        }
         add(OpenChoice.SHARE to "分享")
     }
 
