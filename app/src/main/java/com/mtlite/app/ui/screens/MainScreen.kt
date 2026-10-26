@@ -181,6 +181,18 @@ fun MainScreen(
         HexViewerScreen(initialPath = path, onClose = { viewModel.dismissHexViewer() })
         return
     }
+    viewModel.mediaPlaylist?.let { list ->
+        MediaPlayerScreen(
+            paths = list,
+            startIndex = viewModel.mediaStartIndex,
+            onClose = { viewModel.dismissMediaPlayer() },
+            onOpenSystem = { path ->
+                viewModel.dismissMediaPlayer()
+                viewModel.openWithSystem(FileItem.fromFile(java.io.File(path)))
+            }
+        )
+        return
+    }
 
     // Long-press menu content shared by both panes (single vs batch).
     val paneMenu: @Composable (PaneSide, FileItem) -> Unit = { side, item ->

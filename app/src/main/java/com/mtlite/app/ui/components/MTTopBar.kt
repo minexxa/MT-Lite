@@ -166,7 +166,7 @@ fun MTAppBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) { navigationIcon() }
-                Box(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     androidx.compose.material3.ProvideTextStyle(
                         androidx.compose.ui.text.TextStyle(fontSize = 20.sp, color = Color.White)
                     ) { title() }

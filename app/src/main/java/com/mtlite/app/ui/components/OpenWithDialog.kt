@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -33,6 +34,7 @@ fun OpenWithDialog(
     val options = buildList {
         add(OpenChoice.TEXT_EDITOR to "文本编辑器")
         add(OpenChoice.IMAGE_VIEWER to "图片查看")
+        add(OpenChoice.MEDIA_PLAYER to "内置播放器")
         add(OpenChoice.HEX_VIEWER to "Hex 查看")
         add(OpenChoice.SYSTEM_APP to "系统应用打开")
         if (item.fileKind == FileKind.APK) add(OpenChoice.INSTALL to "安装")
@@ -79,6 +81,7 @@ fun OpenWithDialog(
 private fun iconForChoice(choice: OpenChoice): ImageVector = when (choice) {
     OpenChoice.TEXT_EDITOR -> Icons.Default.Article
     OpenChoice.IMAGE_VIEWER -> Icons.Default.Image
+    OpenChoice.MEDIA_PLAYER -> Icons.Default.PlayCircle
     OpenChoice.HEX_VIEWER -> Icons.Default.Memory
     OpenChoice.SYSTEM_APP -> Icons.Default.OpenInNew
     OpenChoice.INSTALL -> Icons.Default.InstallMobile

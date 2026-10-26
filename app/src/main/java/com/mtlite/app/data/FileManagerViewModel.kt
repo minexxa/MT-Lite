@@ -791,6 +791,7 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
                 if (item.isZipEntry) openZipEntryText(item) else openTextEditor(item.path)
             }
             OpenChoice.IMAGE_VIEWER -> openImage(item)
+            OpenChoice.MEDIA_PLAYER -> openMedia(activePane, item)
             OpenChoice.HEX_VIEWER -> openHex(item)
             OpenChoice.SYSTEM_APP -> openWithSystem(item)
             OpenChoice.INSTALL -> installApk(item)
@@ -943,6 +944,50 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
         imageViewerPath = null
     }
 
+    // ------------------------------------------------------- built-in player
+
+    /** Playlist shown by the built-in ExoPlayer; null = player closed. */
+    var mediaPlaylist by mutableStateOf<List<String>?>(null)
+        private set
+    var mediaStartIndex by mutableStateOf(0)
+        private set
+
+    /**
+     * Open a video / audio file in the built-in player. The playlist is made of
+     * the files of the same kind in the pane's current listing.
+     */
+    fun openMedia(side: PaneSide, item: FileItem) {
+        viewModelScope.launch {
+            if (item.isZipEntry) {
+                val ctx = getApplication<android.app.Application>().applicationContext
+                val cached = FileHelper.extractEntryToCache(item, File(ctx.cacheDir, "preview"))
+                if (cached == null) {
+                    toastMessage = "无法播放该文件"
+                } else {
+                    mediaStartIndex = 0
+                    mediaPlaylist = listOf(cached.absolutePath)
+                }
+                return@launch
+            }
+            if (!File(item.path).canRead()) {
+                openWithSystem(item)
+                return@launch
+            }
+            val pane = if (side == PaneSide.LEFT) leftPane else rightPane
+            val kind = item.fileKind
+            val sameKind = pane.visibleItems
+                .filter { !it.isDirectory && !it.isZipEntry && it.fileKind == kind }
+                .map { it.path }
+            val idx = sameKind.indexOf(item.path)
+            mediaStartIndex = idx.coerceAtLeast(0)
+            mediaPlaylist = if (idx >= 0) sameKind else listOf(item.path)
+        }
+    }
+
+    fun dismissMediaPlayer() {
+        mediaPlaylist = null
+    }
+
     var hexViewerPath by mutableStateOf<String?>(null)
         private set
 
@@ -1017,7 +1062,7 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
             item.fileKind == FileKind.TEXT || item.fileKind == FileKind.CODE -> {
                 if (item.isZipEntry) openZipEntryText(item) else openTextEditor(item.path)
             }
-            item.fileKind == FileKind.VIDEO || item.fileKind == FileKind.AUDIO -> openWithSystem(item)
+            item.fileKind == FileKind.VIDEO || item.fileKind == FileKind.AUDIO -> openMedia(side, item)
             item.fileKind == FileKind.APK && !item.isZipEntry -> openApkDialog(item)
             else -> showOpenWith(item)
         }
@@ -1055,4 +1100,4 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
 }
 
 /** Choices offered by the 打开方式 dialog. */
-enum class OpenChoice { TEXT_EDITOR, IMAGE_VIEWER, HEX_VIEWER, SYSTEM_APP, INSTALL, SHARE }
+enum class OpenChoice { TEXT_EDITOR, IMAGE_VIEWER, MEDIA_PLAYER, HEX_VIEWER, SYSTEM_APP, INSTALL, SHARE }
