@@ -257,7 +257,11 @@ fun FileListItem(
 
 // ------------------------------------------------------------------ file icons
 
-/** Tile colours per file kind (folders and unknown files stay the dark MA tile). */
+/**
+ * Tile colours per file kind. Only folders use the dark tile; every file kind
+ * (including video and unknown files) gets its own non-dark colour so files
+ * can never be mistaken for folders.
+ */
 private fun kindTileColor(kind: FileKind, dark: Boolean): Color? = when (kind) {
     FileKind.CODE -> Color(0xFF3B66C4)
     FileKind.TEXT -> Color(0xFF4F7FA8)
@@ -265,7 +269,29 @@ private fun kindTileColor(kind: FileKind, dark: Boolean): Color? = when (kind) {
     FileKind.APK -> Color(0xFF4C9A52)
     FileKind.IMAGE -> Color(0xFF3E8E7E)
     FileKind.AUDIO -> Color(0xFF8E5BB5)
-    else -> null // FOLDER / VIDEO / OTHER -> dark tile
+    FileKind.VIDEO -> Color(0xFFC25B4E)
+    FileKind.OTHER -> null // coloured per extension, see otherTileColor()
+    FileKind.FOLDER -> null // only folders keep the dark tile
+}
+
+/** Vivid palette for files without a dedicated kind; none of them is dark or grey. */
+private val OTHER_PALETTE = listOf(
+    Color(0xFFE57C23), // orange
+    Color(0xFFD6457A), // pink
+    Color(0xFF1E9DB8), // cyan
+    Color(0xFF5C6BC0), // indigo
+    Color(0xFFC9A100), // amber
+    Color(0xFF7CB342), // lime green
+    Color(0xFFE0513E), // red
+    Color(0xFF26A69A), // teal
+    Color(0xFF9C5BD0), // violet
+    Color(0xFF3D8BE0)  // sky blue
+)
+
+/** Stable colour for an unrecognised file: same extension -> same colour. */
+private fun otherTileColor(item: FileItem): Color {
+    val key = item.extension.ifEmpty { item.name }.lowercase()
+    return OTHER_PALETTE[(key.hashCode() and Int.MAX_VALUE) % OTHER_PALETTE.size]
 }
 
 /** Small glyph drawn on top of / instead of the document icon. */
@@ -289,7 +315,8 @@ private fun FileIconTile(item: FileItem) {
     val shape = RoundedCornerShape(MAStyle.TileRadius)
     val kind = item.fileKind
     val dark = MAStyle.isDark()
-    val tileColor = kindTileColor(kind, dark) ?: MAStyle.tile()
+    val tileColor = kindTileColor(kind, dark)
+        ?: if (item.isDirectory) MAStyle.tile() else otherTileColor(item)
     val thumb = rememberThumb(item)
 
     Box(
