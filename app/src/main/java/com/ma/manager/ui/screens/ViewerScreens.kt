@@ -1,5 +1,6 @@
 package com.ma.manager.ui.screens
 
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -43,6 +44,7 @@ fun ApkInfoScreen(
     apkPath: String,
     onClose: () -> Unit
 ) {
+    BackHandler(onBack = onClose)
     val context = LocalContext.current
     var info by remember { mutableStateOf<ApkInfo?>(null) }
     var icon by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
@@ -236,6 +238,7 @@ fun ImageViewerScreen(
     initialPath: String? = null,
     onClose: () -> Unit
 ) {
+    BackHandler(onBack = onClose)
     val context = LocalContext.current
     var path by remember { mutableStateOf(initialPath ?: "") }
     var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
@@ -293,6 +296,7 @@ fun HexViewerScreen(
     initialPath: String? = null,
     onClose: () -> Unit
 ) {
+    BackHandler(onBack = onClose)
     var path by remember { mutableStateOf(initialPath ?: "") }
     var lines by remember { mutableStateOf<List<String>>(emptyList()) }
     var offset by remember { mutableStateOf(0L) }

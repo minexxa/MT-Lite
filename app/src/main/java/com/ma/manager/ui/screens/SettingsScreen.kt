@@ -1,5 +1,6 @@
 package com.ma.manager.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +27,7 @@ import com.ma.manager.util.FileHelper
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onClose: () -> Unit) {
+    BackHandler(onBack = onClose)
     val context = LocalContext.current
     val settings = remember { SettingsStore.get(context) }
 

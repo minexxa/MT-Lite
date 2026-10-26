@@ -1,5 +1,6 @@
 package com.ma.manager.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -289,6 +290,12 @@ fun TextEditorScreen(
 
     fun requestClose() {
         if (dirty) showCloseConfirm = true else onClose()
+    }
+
+    // System back: collapse the find/replace bar first, otherwise behave like the close button
+    // (prompts to save when there are unsaved changes).
+    BackHandler {
+        if (showFind) showFind = false else requestClose()
     }
 
     Scaffold(

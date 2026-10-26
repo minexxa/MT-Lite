@@ -1,5 +1,6 @@
 package com.ma.manager.ui.screens
 
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -37,6 +38,7 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerminalScreen(onClose: () -> Unit) {
+    BackHandler(onBack = onClose)
     var input by remember { mutableStateOf("") }
     var output by remember { mutableStateOf("MA Terminal\nRoot: ${FileHelper.isRootAvailable()}\n") }
     val history = remember { mutableStateListOf<String>() }
@@ -143,6 +145,7 @@ data class AppEntry(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApkExtractorScreen(onClose: () -> Unit) {
+    BackHandler(onBack = onClose)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
@@ -292,6 +295,7 @@ fun BookmarksScreen(
     onRemove: (Long) -> Unit,
     onClose: () -> Unit
 ) {
+    BackHandler(onBack = onClose)
     Scaffold(
         topBar = {
             MAAppBar(
@@ -349,6 +353,7 @@ fun TrashScreen(
     onClose: () -> Unit,
     onEmpty: () -> Unit
 ) {
+    BackHandler(onBack = onClose)
     val trashPath = "/storage/emulated/0/.MA_Trash"
     var items by remember { mutableStateOf<List<com.ma.manager.data.FileItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }

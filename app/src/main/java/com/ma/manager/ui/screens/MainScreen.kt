@@ -1,5 +1,6 @@
 package com.ma.manager.ui.screens
 
+import androidx.activity.compose.BackHandler
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -76,6 +77,37 @@ fun MainScreen(
         LaunchedEffect(msg) {
             snackMsg = msg
             viewModel.clearToast()
+        }
+    }
+
+    // ---- system back key / gesture on the file-manager screen ----
+    // Full-screen pages (settings, editor, viewers, ...) register their own BackHandler,
+    // so this one is only active while the dual-pane list is what the user sees.
+    var lastBackAt by remember { mutableStateOf(0L) }
+    val overlayShown = currentTool != null ||
+        viewModel.imageViewerPath != null ||
+        viewModel.hexViewerPath != null ||
+        viewModel.mediaPlaylist != null ||
+        viewModel.showTextEditor
+    BackHandler(enabled = !overlayShown) {
+        when {
+            drawerState.isOpen -> scope.launch { drawerState.close() }
+            viewModel.longPressItem != null -> viewModel.dismissLongPressMenu()
+            left.inSelectionMode || right.inSelectionMode -> {
+                if (left.inSelectionMode) viewModel.clearSelection(PaneSide.LEFT)
+                if (right.inSelectionMode) viewModel.clearSelection(PaneSide.RIGHT)
+            }
+            activeState.searchQuery != null -> viewModel.clearSearch(active)
+            canGoUp(activeState.currentPath) -> viewModel.goUp(active)
+            else -> {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastBackAt < 2000L) {
+                    (context as? Activity)?.finish()
+                } else {
+                    lastBackAt = now
+                    viewModel.toastMessage = "再按一次返回键退出"
+                }
+            }
         }
     }
 
@@ -687,6 +719,14 @@ fun MainScreen(
         }
 }
 
+
+/** True when "back" should still walk up the directory tree (stops at / and the storage root). */
+private fun canGoUp(path: String): Boolean {
+    if (path.startsWith("zip://")) return true
+    val p = path.trimEnd('/').ifEmpty { "/" }
+    if (p == "/" || p == "/storage/emulated/0" || p == "/sdcard") return false
+    return java.io.File(p).parent != null
+}
 
 /**
  * Activates a pane as soon as a finger touches it (tap, scroll or swipe).
