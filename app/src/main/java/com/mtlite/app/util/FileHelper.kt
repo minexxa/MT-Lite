@@ -93,7 +93,7 @@ object FileHelper {
         try {
             if (path.startsWith("zip://")) {
                 return@withContext FileItem.sortItems(
-                    listZipEntries(path), sortBy, ascending, foldersFirst
+                    listArchiveEntries(path), sortBy, ascending, foldersFirst
                 )
             }
 
@@ -300,11 +300,26 @@ object FileHelper {
         }
     }
 
-    private fun listZipEntries(zipPath: String): List<FileItem> {
-        val parts = zipPath.removePrefix("zip://").split("!", limit = 2)
-        val realZip = parts[0]
+    /**
+     * List the contents of a virtual `zip://archive!internal` path. Real zip
+     * archives use zip4j; 7z / tar family / gz / bz2 / xz / deb go through
+     * [ArchiveHelper], producing the same FileItem shape.
+     */
+    private fun listArchiveEntries(virtualPath: String): List<FileItem> {
+        val parts = virtualPath.removePrefix("zip://").split("!", limit = 2)
+        val realArchive = parts[0]
         val internal = if (parts.size > 1) parts[1].trimStart('/') else ""
 
+        return if (ArchiveHelper.detectType(realArchive) == ArchiveType.ZIP) {
+            listZipEntries(realArchive, internal)
+        } else {
+            ArchiveHelper.buildItems(
+                realArchive, internal, ArchiveHelper.listEntriesCached(realArchive)
+            )
+        }
+    }
+
+    private fun listZipEntries(realZip: String, internal: String): List<FileItem> {
         return try {
             val zip = openZip(realZip)
             val entries = zip.fileHeaders
@@ -676,6 +691,51 @@ object FileHelper {
         }
     }
 
+    /**
+     * Create an archive in [format]: zip (zip4j, password supported),
+     * 7z (LZMA2) and tar / tar.gz / tar.bz2 / tar.xz via [ArchiveHelper].
+     */
+    suspend fun createArchive(
+        items: List<FileItem>,
+        dest: String,
+        format: ArchiveFormat,
+        password: String? = null,
+        onProgress: (OpProgress) -> Unit
+    ): TransferResult = when (format) {
+        ArchiveFormat.ZIP -> createZip(items, dest, password, onProgress)
+        ArchiveFormat.SEVENZ -> ArchiveHelper.create7z(items, dest, onProgress)
+        ArchiveFormat.TAR -> ArchiveHelper.createTar(items, dest, ArchiveType.TAR, onProgress)
+        ArchiveFormat.TGZ -> ArchiveHelper.createTar(items, dest, ArchiveType.TGZ, onProgress)
+        ArchiveFormat.TBZ2 -> ArchiveHelper.createTar(items, dest, ArchiveType.TBZ2, onProgress)
+        ArchiveFormat.TXZ -> ArchiveHelper.createTar(items, dest, ArchiveType.TXZ, onProgress)
+    }
+
+    /**
+     * Extract a folder entry (zip:// path) into [destDir]. For real zips the
+     * matching headers are extracted by prefix; other archive types let
+     * [ArchiveHelper.extractSingle] handle the prefix.
+     */
+    suspend fun extractArchiveFolder(entry: FileItem, destDir: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val archivePath = entry.zipParentPath ?: return@withContext false
+                val internal = entry.path.substringAfter("!", "").removePrefix("/").trimEnd('/')
+                if (ArchiveHelper.detectType(archivePath) != ArchiveType.ZIP) {
+                    return@withContext ArchiveHelper.extractSingle(archivePath, internal, destDir)
+                }
+                val zipFile = openZip(archivePath)
+                val prefix = "$internal/"
+                var ok = true
+                for (header in zipFile.fileHeaders) {
+                    if (!header.fileName.startsWith(prefix)) continue
+                    runCatching { zipFile.extractFile(header, destDir) }.onFailure { ok = false }
+                }
+                ok
+            } catch (e: Exception) {
+                false
+            }
+        }
+
     suspend fun addToZip(
         items: List<FileItem>,
         zipPath: String
@@ -709,6 +769,9 @@ object FileHelper {
         onProgress: (OpProgress) -> Unit
     ): TransferResult = withContext(Dispatchers.IO) {
         resetCancel()
+        if (ArchiveHelper.detectType(zipPath) != ArchiveType.ZIP) {
+            return@withContext ArchiveHelper.extractAll(zipPath, destDir, onProgress)
+        }
         try {
             val zipFile = openZip(zipPath, password)
             if (zipFile.isEncrypted && password.isNullOrEmpty()) {
@@ -739,13 +802,16 @@ object FileHelper {
         }
     }
 
-    /** Extract a single entry from a zip (zip:// paths supported). */
+    /** Extract a single entry from any supported archive (zip:// paths). */
     suspend fun extractZipEntry(entry: FileItem, destDir: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                val zipPath = entry.zipParentPath ?: return@withContext false
-                val zipFile = openZip(zipPath)
+                val archivePath = entry.zipParentPath ?: return@withContext false
                 val internal = entry.path.substringAfter("!", "").removePrefix("/")
+                if (ArchiveHelper.detectType(archivePath) != ArchiveType.ZIP) {
+                    return@withContext ArchiveHelper.extractSingle(archivePath, internal, destDir)
+                }
+                val zipFile = openZip(archivePath)
                 zipFile.extractFile(internal, destDir)
                 true
             } catch (e: Exception) {
@@ -755,30 +821,45 @@ object FileHelper {
 
     /**
      * Extract one entry into [cacheDir] and return the temp file, so viewers
-     * (image / text) can open zip contents without touching the archive.
+     * (image / text) can open archive contents without touching the archive.
      */
     suspend fun extractEntryToCache(entry: FileItem, cacheDir: File): File? =
         withContext(Dispatchers.IO) {
             try {
-                val zipPath = entry.zipParentPath ?: return@withContext null
-                val zipFile = openZip(zipPath)
+                val archivePath = entry.zipParentPath ?: return@withContext null
                 val internal = entry.path.substringAfter("!", "").removePrefix("/")
                 cacheDir.mkdirs()
-                val out = File(cacheDir, internal.substringAfterLast('/'))
-                zipFile.extractFile(internal, cacheDir.absolutePath)
-                if (out.exists()) out else null
+                if (ArchiveHelper.detectType(archivePath) != ArchiveType.ZIP) {
+                    val ok = ArchiveHelper.extractSingle(archivePath, internal, cacheDir.absolutePath)
+                    if (!ok) return@withContext null
+                    // Prefer the exact member path; fall back to the decompressed
+                    // single file name for .gz/.bz2/.xz archives.
+                    File(cacheDir, internal).takeIf { it.exists() }
+                        ?: File(cacheDir, ArchiveHelper.innerFileName(File(archivePath).name))
+                            .takeIf { it.exists() }
+                        ?: return@withContext null
+                } else {
+                    val zipFile = openZip(archivePath)
+                    val out = File(cacheDir, internal.substringAfterLast('/'))
+                    zipFile.extractFile(internal, cacheDir.absolutePath)
+                    if (out.exists()) out else null
+                }
             } catch (e: Exception) {
                 null
             }
         }
 
-    /** Read a zip entry as text (zip:// item supported). Returns null on failure. */
+    /** Read an archive entry as text (zip:// item supported). Returns null on failure. */
     suspend fun readZipEntryText(entry: FileItem, maxSize: Long = 4 * 1024 * 1024): String? =
         withContext(Dispatchers.IO) {
             try {
-                val zipPath = entry.zipParentPath ?: return@withContext null
-                val zipFile = openZip(zipPath)
+                val archivePath = entry.zipParentPath ?: return@withContext null
                 val internal = entry.path.substringAfter("!", "").removePrefix("/")
+                if (ArchiveHelper.detectType(archivePath) != ArchiveType.ZIP) {
+                    return@withContext ArchiveHelper.readEntryBytes(archivePath, internal, maxSize)
+                        ?.toString(Charsets.UTF_8)
+                }
+                val zipFile = openZip(archivePath)
                 val header = zipFile.fileHeaders.firstOrNull { it.fileName == internal }
                     ?: return@withContext null
                 if (header.uncompressedSize > maxSize) return@withContext null
@@ -794,6 +875,15 @@ object FileHelper {
      */
     suspend fun testZip(zipPath: String, password: String? = null): String =
         withContext(Dispatchers.IO) {
+            if (ArchiveHelper.detectType(zipPath) != ArchiveType.ZIP) {
+                return@withContext try {
+                    val entries = ArchiveHelper.listEntriesCached(zipPath)
+                    if (entries.isEmpty()) "文件损坏或不是有效的压缩包"
+                    else "测试通过，${entries.size} 个条目未发现错误"
+                } catch (e: Exception) {
+                    "测试失败: ${e.message}"
+                }
+            }
             try {
                 val zipFile = openZip(zipPath, password)
                 if (!zipFile.isValidZipFile) return@withContext "文件损坏或不是有效的压缩包"
@@ -817,8 +907,9 @@ object FileHelper {
             }
         }
 
+    /** Only real zip archives support passwords (7z write encryption unavailable). */
     fun zipNeedsPassword(zipPath: String): Boolean = try {
-        openZip(zipPath).isEncrypted
+        ArchiveHelper.detectType(zipPath) == ArchiveType.ZIP && openZip(zipPath).isEncrypted
     } catch (_: Exception) {
         false
     }

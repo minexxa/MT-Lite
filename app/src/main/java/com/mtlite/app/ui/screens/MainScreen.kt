@@ -551,7 +551,7 @@ fun MainScreen(
             currentPath = activeState.currentPath,
             count = activeState.selectedItems.size.takeIf { it > 0 } ?: viewModel.zipSingleCount(),
             onDismiss = { viewModel.showZipCreateDialog = false },
-            onConfirm = { name, pwd -> viewModel.createZipFromSelection(active, name, pwd) }
+            onConfirm = { name, pwd, format -> viewModel.createArchiveFromSelection(active, name, pwd, format) }
         )
     }
 

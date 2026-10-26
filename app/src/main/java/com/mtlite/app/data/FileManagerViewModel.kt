@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mtlite.app.util.ApkInfo
 import com.mtlite.app.util.ApkInfoUtil
+import com.mtlite.app.util.ArchiveFormat
 import com.mtlite.app.util.FileHelper
 import com.mtlite.app.util.TransferResult
 import kotlinx.coroutines.CompletableDeferred
@@ -596,16 +597,19 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ zip ops
 
-    fun createZipFromSelection(side: PaneSide, zipName: String, password: String) {
+    fun createArchiveFromSelection(side: PaneSide, name: String, password: String, format: ArchiveFormat) {
         val state = if (side == PaneSide.LEFT) leftPane else rightPane
         val items = if (state.selectedItems.isNotEmpty()) {
             state.items.filter { it.path in state.selectedItems && it.name != ".." }
         } else {
             zipSingleItems
         }
-        val dest = File(state.currentPath, if (zipName.endsWith(".zip")) zipName else "$zipName.zip").absolutePath
+        val dest = File(
+            state.currentPath,
+            if (name.endsWith(format.extension)) name else name + format.extension
+        ).absolutePath
         viewModelScope.launch {
-            val result = FileHelper.createZip(items, dest, password.ifBlank { null }) { opProgress = it }
+            val result = FileHelper.createArchive(items, dest, format, password.ifBlank { null }) { opProgress = it }
             opProgress = OpProgress(finished = true, message = result.summary)
             toastMessage = if (result.success > 0) "已创建 $dest" else "压缩失败"
             if (result.success > 0 && password.isNotBlank()) {
@@ -658,19 +662,7 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun extractZipFolder(entry: FileItem, destDir: String): Boolean {
-        return try {
-            val zipPath = entry.zipParentPath ?: return false
-            val zipFile = net.lingala.zip4j.ZipFile(zipPath)
-            val prefix = entry.path.substringAfter("!", "").removePrefix("/").trimEnd('/') + "/"
-            var ok = true
-            for (header in zipFile.fileHeaders) {
-                if (!header.fileName.startsWith(prefix)) continue
-                runCatching { zipFile.extractFile(header, destDir) }.onFailure { ok = false }
-            }
-            ok
-        } catch (e: Exception) {
-            false
-        }
+        return FileHelper.extractArchiveFolder(entry, destDir)
     }
 
     fun testZipAt(zipPath: String, password: String) {
@@ -877,9 +869,12 @@ class FileManagerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------- zip tool ops
 
-    /** 工具 → 添加到压缩包: first archive in [targets] is the destination. */
+    /** 工具 → 添加到压缩包: first archive in [targets] is the destination (zip only). */
     fun addToZipTargets(side: PaneSide, targets: List<FileItem>) {
-        val zip = targets.firstOrNull { it.fileKind == FileKind.ARCHIVE && !it.isZipEntry }
+        val zip = targets.firstOrNull {
+            it.fileKind == FileKind.ARCHIVE && !it.isZipEntry &&
+                com.mtlite.app.util.ArchiveHelper.detectType(it.path) == com.mtlite.app.util.ArchiveType.ZIP
+        }
         if (zip == null) {
             toastMessage = "请先选中一个压缩包作为目标"
             return

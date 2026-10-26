@@ -119,6 +119,10 @@ dependencies {
     // ZIP
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 
+    // 归档：7z / tar / gz / bz2 / xz / deb (ar)
+    implementation("org.apache.commons:commons-compress:1.26.2")
+    implementation("org.tukaani:xz:1.9")
+
     // Media3 ExoPlayer (built-in video / audio player)
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")

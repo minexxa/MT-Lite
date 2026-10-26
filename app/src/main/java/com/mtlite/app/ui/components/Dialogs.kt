@@ -262,15 +262,17 @@ fun ConflictDialog(
     )
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ZipCreateDialog(
     currentPath: String,
     count: Int,
     onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+    onConfirm: (name: String, password: String, format: com.mtlite.app.util.ArchiveFormat) -> Unit
 ) {
     var name by remember { mutableStateOf("archive.zip") }
     var password by remember { mutableStateOf("") }
+    var format by remember { mutableStateOf(com.mtlite.app.util.ArchiveFormat.ZIP) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("创建压缩包 ($count 项)") },
@@ -284,18 +286,52 @@ fun ZipCreateDialog(
                     label = { Text("文件名") }
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("密码（可选）") }
-                )
+                // 格式选择：ZIP / 7z / TAR / TAR.GZ / TAR.BZ2 / TAR.XZ
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    com.mtlite.app.util.ArchiveFormat.entries.forEach { f ->
+                        FilterChip(
+                            selected = format == f,
+                            onClick = {
+                                format = f
+                                // 同步文件名后缀，保留用户输入的基础名
+                                val trimmed = name.trim()
+                                val base = (if (trimmed.endsWith(format.extension)) {
+                                    trimmed.removeSuffix(format.extension)
+                                } else {
+                                    trimmed.substringBeforeLast('.').ifBlank { trimmed }
+                                }).ifBlank { "archive" }
+                                name = base + f.extension
+                            },
+                            label = { Text(f.label, fontSize = 12.sp) }
+                        )
+                    }
+                }
+                if (format.supportsPassword) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("密码（可选）") }
+                    )
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = if (format == com.mtlite.app.util.ArchiveFormat.SEVENZ)
+                            "7z 使用 LZMA2 压缩（不支持加密）"
+                        else "TAR 格式无压缩${if (format != com.mtlite.app.util.ArchiveFormat.TAR) "，外层 ${format.label.removePrefix("TAR.")} 压缩" else ""}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name.trim(), password) },
+                onClick = { onConfirm(name.trim(), password, format) },
                 enabled = name.isNotBlank()
             ) { Text("创建") }
         },
