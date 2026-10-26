@@ -78,17 +78,17 @@ jobs:
         run: |
           ls -l app/build/outputs/apk/release/
           APK=$(ls app/build/outputs/apk/release/*arm64-v8a*-release.apk | head -n 1)
-          cp "$APK" mt-lite-arm64-v8a-release.apk
-          "$ANDROID_SDK_ROOT"/build-tools/*/apksigner verify --verbose mt-lite-arm64-v8a-release.apk || true
+          cp "$APK" ma-manager-arm64-v8a-release.apk
+          "$ANDROID_SDK_ROOT"/build-tools/*/apksigner verify --verbose ma-manager-arm64-v8a-release.apk || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mt-lite-arm64-v8a-release
-          path: mt-lite-arm64-v8a-release.apk
+          name: ma-manager-arm64-v8a-release
+          path: ma-manager-arm64-v8a-release.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: test
-          files: mt-lite-arm64-v8a-release.apk
+          files: ma-manager-arm64-v8a-release.apk

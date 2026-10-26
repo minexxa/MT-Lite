@@ -1,4 +1,4 @@
-# MT-Lite
+# MA
 
 轻量级双窗口文件管理器，灵感来自 [MT管理器](https://mt.cc)，基于 MT Manager 2.26.10 反编译分析后的重写实现。
 
@@ -26,7 +26,7 @@
 - 重命名、批量重命名（查找替换，保留扩展名）
 - 新建文件 / 文件夹
 - chmod 权限修改（需 Root）
-- **回收站**：删除默认移入 `/storage/emulated/0/.MT_Lite_Trash`，可清空
+- **回收站**：删除默认移入 `/storage/emulated/0/.MA_Trash`，可清空
 - 属性对话框：名称 / 路径 / 类型 / 大小 / 时间 / 权限 / APK 摘要
 
 ### 搜索
@@ -48,7 +48,7 @@
 
 ### APK 工具（只读）
 - APK 信息查看：包名 / 版本 / SDK / 大小 / 组件数量 / 签名 SHA-256、SHA-1、MD5 / 权限列表 / 安装时间
-- 安装包提取：列出已安装应用并导出 APK 到 Download/MT-Lite-APK
+- 安装包提取：列出已安装应用并导出 APK 到 Download/MA-APK
 - 调用系统安装器安装 APK
 
 ### 书签

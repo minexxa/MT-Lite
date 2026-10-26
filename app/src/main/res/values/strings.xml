@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MT-Lite</string>
+    <string name="app_name">MA管理器</string>
     <string name="storage">存储</string>
     <string name="tools">工具</string>
     <string name="root_dir">根目录</string>

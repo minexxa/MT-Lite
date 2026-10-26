@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.mtlite.app"
+    namespace = "com.ma.manager"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.mtlite.app"
+        applicationId = "com.ma.manager"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

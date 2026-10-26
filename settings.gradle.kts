@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MT-Lite"
+rootProject.name = "MA"
 include(":app")
