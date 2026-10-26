@@ -17,7 +17,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Folder
@@ -33,6 +38,17 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -239,26 +255,159 @@ fun FileListItem(
     }
 }
 
-/** Official-style 28dp rounded dark tile with a white glyph. */
+// ------------------------------------------------------------------ file icons
+
+/** Tile colours per file kind (folders and unknown files stay the dark MT tile). */
+private fun kindTileColor(kind: FileKind, dark: Boolean): Color? = when (kind) {
+    FileKind.CODE -> Color(0xFF3B66C4)
+    FileKind.TEXT -> Color(0xFF4F7FA8)
+    FileKind.ARCHIVE -> Color(0xFF7B5548)
+    FileKind.APK -> Color(0xFF4C9A52)
+    FileKind.IMAGE -> Color(0xFF3E8E7E)
+    FileKind.AUDIO -> Color(0xFF8E5BB5)
+    else -> null // FOLDER / VIDEO / OTHER -> dark tile
+}
+
+/** Small glyph drawn on top of / instead of the document icon. */
+private fun badgeFor(kind: FileKind): ImageVector? = when (kind) {
+    FileKind.CODE -> Icons.Default.Code
+    FileKind.TEXT -> Icons.Default.Article
+    FileKind.IMAGE -> Icons.Default.Image
+    FileKind.VIDEO -> Icons.Default.Videocam
+    FileKind.AUDIO -> Icons.Default.MusicNote
+    else -> null
+}
+
+/**
+ * Official-style 28dp rounded tile:
+ *  - folder: dark tile + white folder
+ *  - other files: per-type colour, white document with a type badge
+ *  - image / video / apk: real thumbnail or app icon when it can be loaded
+ */
 @Composable
 private fun FileIconTile(item: FileItem) {
     val shape = RoundedCornerShape(MTStyle.TileRadius)
+    val kind = item.fileKind
+    val dark = MTStyle.isDark()
+    val tileColor = kindTileColor(kind, dark) ?: MTStyle.tile()
+    val thumb = rememberThumb(item)
+
     Box(
         Modifier
             .size(MTStyle.TileSize)
             .shadow(1.5.dp, shape, clip = false)
-            .background(MTStyle.tile(), shape)
+            .background(tileColor, shape)
     ) {
-        if (item.isDirectory) {
-            FolderGlyph(Modifier.padding(start = 6.8.dp, top = 8.2.dp))
-        } else {
-            Icon(
-                imageVector = iconFor(item),
+        when {
+            item.isDirectory -> FolderGlyph(Modifier.padding(start = 6.8.dp, top = 8.2.dp))
+            thumb != null -> androidx.compose.foundation.Image(
+                bitmap = thumb,
                 contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.align(Alignment.Center).size(16.dp)
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(shape)
             )
+            kind == FileKind.ARCHIVE -> Icon(
+                Icons.Default.Archive, null, tint = Color.White,
+                modifier = Modifier.align(Alignment.Center).size(18.dp)
+            )
+            kind == FileKind.APK -> Icon(
+                Icons.Default.Android, null, tint = Color.White,
+                modifier = Modifier.align(Alignment.Center).size(18.dp)
+            )
+            else -> {
+                // white document with a small badge cut into it
+                Icon(
+                    Icons.Default.InsertDriveFile, null, tint = Color.White,
+                    modifier = Modifier.align(Alignment.Center).size(18.dp)
+                )
+                val badge = badgeFor(kind)
+                if (badge != null) {
+                    Icon(
+                        badge, null, tint = tileColor,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(y = 2.dp)
+                            .size(9.dp)
+                    )
+                }
+            }
         }
+    }
+}
+
+private object ThumbCache {
+    val cache = android.util.LruCache<String, ImageBitmap>(300)
+    val failed: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+    val gate = Semaphore(3)
+}
+
+@Composable
+private fun rememberThumb(item: FileItem): ImageBitmap? {
+    val context = LocalContext.current.applicationContext
+    val kind = item.fileKind
+    val wanted = !item.isDirectory && !item.isZipEntry &&
+        (kind == FileKind.IMAGE || kind == FileKind.VIDEO || kind == FileKind.APK)
+    val key = "${item.path}|${item.lastModified}|${item.size}"
+    val state = produceState<ImageBitmap?>(
+        initialValue = if (wanted) ThumbCache.cache.get(key) else null,
+        key1 = key, key2 = wanted
+    ) {
+        if (!wanted) return@produceState
+        ThumbCache.cache.get(key)?.let { value = it; return@produceState }
+        if (key in ThumbCache.failed) return@produceState
+        val bmp = ThumbCache.gate.withPermit {
+            withContext(Dispatchers.IO) { loadThumb(context, item.path, kind) }
+        }
+        if (bmp != null) {
+            ThumbCache.cache.put(key, bmp)
+            value = bmp
+        } else {
+            ThumbCache.failed.add(key)
+        }
+    }
+    return state.value
+}
+
+private const val THUMB_PX = 96
+
+private fun loadThumb(context: android.content.Context, path: String, kind: FileKind): ImageBitmap? {
+    return try {
+        val file = java.io.File(path)
+        if (!file.isFile || !file.canRead()) return null
+        val bitmap: android.graphics.Bitmap? = when (kind) {
+            FileKind.IMAGE -> {
+                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(path, opts)
+                if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
+                var sample = 1
+                while (opts.outWidth / (sample * 2) >= THUMB_PX && opts.outHeight / (sample * 2) >= THUMB_PX) sample *= 2
+                val real = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                android.graphics.BitmapFactory.decodeFile(path, real)
+            }
+            FileKind.VIDEO -> {
+                val r = android.media.MediaMetadataRetriever()
+                try {
+                    r.setDataSource(path)
+                    r.getFrameAtTime(-1, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                } finally {
+                    runCatching { r.release() }
+                }
+            }
+            FileKind.APK -> {
+                val d = com.mtlite.app.util.ApkInfoUtil.loadIcon(context, path) ?: return null
+                val w = if (d.intrinsicWidth > 0) d.intrinsicWidth.coerceAtMost(THUMB_PX * 2) else THUMB_PX
+                val h = if (d.intrinsicHeight > 0) d.intrinsicHeight.coerceAtMost(THUMB_PX * 2) else THUMB_PX
+                val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                val c = android.graphics.Canvas(b)
+                d.setBounds(0, 0, w, h)
+                d.draw(c)
+                b
+            }
+            else -> null
+        }
+        bitmap?.asImageBitmap()
+    } catch (e: Throwable) {
+        null
     }
 }
 

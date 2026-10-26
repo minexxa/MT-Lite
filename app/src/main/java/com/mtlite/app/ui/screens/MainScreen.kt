@@ -33,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.mtlite.app.ui.theme.ShadowToLeft
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -417,7 +419,7 @@ fun MainScreen(
                     menuContent = { item -> paneMenu(PaneSide.LEFT, item) },
                     modifier = Modifier
                         .fillMaxSize()
-                        .clickable { viewModel.switchActivePane(PaneSide.LEFT) }
+                        .activateOnTouch { viewModel.switchActivePane(PaneSide.LEFT) }
                 )
                 ShadowToLeft(Modifier.align(Alignment.CenterEnd))
                 }
@@ -439,7 +441,7 @@ fun MainScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clickable { viewModel.switchActivePane(PaneSide.RIGHT) }
+                        .activateOnTouch { viewModel.switchActivePane(PaneSide.RIGHT) }
                 )
             }
         }
@@ -669,3 +671,19 @@ fun MainScreen(
             )
         }
 }
+
+
+/**
+ * Activates a pane as soon as a finger touches it (tap, scroll or swipe).
+ * Observed in the Initial pass and never consumed, so child gestures
+ * (list scrolling, swipe-select, long press) keep working.
+ */
+private fun Modifier.activateOnTouch(onTouch: () -> Unit): Modifier =
+    this.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.any { it.pressed && !it.previousPressed }) onTouch()
+            }
+        }
+    }
